@@ -12,6 +12,7 @@
   var REGLER_START = 50;            // Startwert aller Regler
   var BASIS_PIXEL_PRO_LAENGE = 3;   // Länge 1 = 3 Pixel (Standardansicht), Länge 100 = 300 Pixel
   var MAX_UMDREHUNG_PRO_SEK = 15;   // Tempo 100 = 15 Umdrehungen pro Sekunde (bei Gesamt-Tempo 50)
+  var MITTE_UMDREHUNG_PRO_SEK = 2;  // Tempo 50 = 2 Umdrehungen pro Sekunde (bei Gesamt-Tempo 50)
   var GESAMT_TEMPO_NORMAL = 50;     // Gesamt-Tempo 50 = normal (x1)
   var GESAMT_TEMPO_MAX_FAKTOR = 50; // Gesamt-Tempo 100 = x50
   var MAX_ZEITSCHRITT = 1 / 240;    // Höchstens so viele Sekunden pro Rechenschritt
@@ -146,8 +147,19 @@
   }
 
   // Winkelgeschwindigkeit eines Stabs aus Tempo und Richtung (nur bei Änderung).
+  // Tempo-Kurve: 0 = Stillstand, 50 = 2 pro Sekunde, 100 = 15 pro Sekunde.
+  // Von 0 bis 50 gleichmäßig, von 50 bis 100 im gleichen Verhältnis steigend.
+  function umdrehungenProSek(tempo) {
+    var mitte = REGLER_MAX / 2;
+    if (tempo <= mitte) {
+      return MITTE_UMDREHUNG_PRO_SEK * tempo / mitte;
+    }
+    return MITTE_UMDREHUNG_PRO_SEK *
+      Math.pow(MAX_UMDREHUNG_PRO_SEK / MITTE_UMDREHUNG_PRO_SEK, (tempo - mitte) / mitte);
+  }
+
   function omegaBerechnen(stab) {
-    stab.omega = stab.richtung * (stab.tempo / REGLER_MAX) * MAX_UMDREHUNG_PRO_SEK * Math.PI * 2;
+    stab.omega = stab.richtung * umdrehungenProSek(stab.tempo) * Math.PI * 2;
   }
 
   // Verbindet Regler und Zahlenknopf: beide zeigen immer denselben Wert.

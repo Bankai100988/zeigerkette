@@ -37,8 +37,10 @@ Programmierer und lernt GitHub dabei.
 - Alles wirkt sofort, es gibt keinen „Übernehmen"-Knopf.
 - Nichts kann kaputtgehen: Jede Einstellung ist erlaubt.
 - Alle Regler gehen von 0 bis 100, Startwert 50. Länge 1 = 3 Pixel
-  (Standardansicht), Tempo 100 = 15 Umdrehungen pro Sekunde,
-  Gesamt-Tempo 50 = normal, 100 = ×50. Länge und Tempo sind proportional.
+  (Standardansicht), Länge ist proportional. Tempo: 0 = Stillstand,
+  50 = 2 Umdrehungen pro Sekunde, 100 = 15 Umdrehungen pro Sekunde (dazwischen
+  nicht linear, wie in `demos/tempo-demo.html`). Gesamt-Tempo 50 = normal,
+  100 = ×50.
 - Neben jedem Regler steht die Zahl. Eingabe über das eigene Ziffernfeld
   der App, nie über die Tastatur des Systems.
 - Jeder Stab bekommt automatisch eine eigene Startfarbe und kann seine Farbe
