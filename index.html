@@ -78,18 +78,25 @@
   .block {
     background: #272740;
     border-radius: 14px;
-    padding: 10px 14px;
+    padding: 8px 12px;
     display: flex;
     flex-direction: column;
     gap: 6px;
     box-sizing: border-box;
   }
 
+  .titel-zeile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
   .block-titel {
     color: var(--farbe);
-    font-size: 18px;
+    font-size: 17px;
     font-weight: bold;
-    margin: 0 0 2px 0;
+    margin: 0;
+    flex: 1 1 auto;
   }
 
   .regler-zeile {
@@ -118,8 +125,9 @@
   }
 
   .spur-knopf {
+    flex: 0 0 76px;
     min-height: 48px;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: bold;
     border-radius: 10px;
     border: 2px solid var(--farbe);
@@ -131,6 +139,44 @@
   .spur-knopf.an {
     background: var(--farbe);
     color: #14141f;
+  }
+
+  .staebe-zeile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .staebe-zeile .staebe-label {
+    color: #ddd;
+    font-size: 15px;
+    font-weight: bold;
+    flex: 0 0 58px;
+  }
+
+  #stab-minus, #stab-plus {
+    flex: 1 1 0;
+    min-height: 48px;
+    font-size: 26px;
+    font-weight: bold;
+    background: #3a3a55;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+
+  #stab-minus:disabled, #stab-plus:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  #stab-anzahl {
+    flex: 0 0 34px;
+    text-align: center;
+    color: #fff;
+    font-size: 18px;
+    font-weight: bold;
   }
 
   #start-pause, #loeschen {
@@ -146,7 +192,8 @@
 
   #start-pause { font-size: 32px; }
 
-  #start-pause:active, #loeschen:active {
+  #start-pause:active, #loeschen:active,
+  #stab-minus:active:not(:disabled), #stab-plus:active:not(:disabled) {
     background: #4a4a6a;
   }
 
@@ -179,6 +226,12 @@
         <label for="gesamt-tempo">Gesamt-Tempo</label>
         <input type="range" id="gesamt-tempo" min="0" max="3000" value="100">
       </div>
+      <div class="staebe-zeile">
+        <span class="staebe-label">Stäbe</span>
+        <button id="stab-minus">−</button>
+        <span id="stab-anzahl">2</span>
+        <button id="stab-plus">+</button>
+      </div>
       <div class="knopf-zeile">
         <button id="start-pause">⏸</button>
         <button id="loeschen">Löschen</button>
@@ -200,12 +253,28 @@
   var MINDEST_BEZUGSLAENGE = 200;   // Bis hierhin sieht die Ansicht aus wie der Standard
   var RAND_ANTEIL = 1.05;           // ca. 5 % Rand um die Kette herum
   var SKALA_ZEITKONSTANTE = 0.15;   // Wie schnell die Ansicht weich nachzieht
+  var MIN_STAEBE = 1;
+  var MAX_STAEBE = 8;
 
-  // ---- Stäbe (aus einer Liste gebaut, nicht einzeln pro Stab) ----
-  var STAB_DEFINITIONEN = [
-    { name: "Stab 1", farbe: "#ff9800", laengeStart: 50, tempoStart: 20, spurStart: false },
-    { name: "Stab 2", farbe: "#2196f3", laengeStart: 30, tempoStart: 60, spurStart: true }
+  // Feste Farbe je Position in der Kette (1. Stab, 2. Stab, ...).
+  var FARBEN = [
+    "#ff9800", // 1 Orange
+    "#2196f3", // 2 Blau
+    "#4caf50", // 3 Grün
+    "#e91e63", // 4 Pink
+    "#ffeb3b", // 5 Gelb
+    "#00bcd4", // 6 Türkis
+    "#f44336", // 7 Rot
+    "#9c27b0"  // 8 Violett
   ];
+
+  // Startwerte der ersten zwei Stäbe (bleiben wie bisher).
+  var ANFANGS_WERTE = [
+    { laenge: 50, tempo: 20, spur: false },
+    { laenge: 30, tempo: 60, spur: true }
+  ];
+  // Werte für jeden neu hinzugefügten Stab.
+  var NEUER_STAB_WERTE = { laenge: 20, tempo: 80, spur: true };
 
   var canvas = document.getElementById("zeichenflaeche");
   var ctx = canvas.getContext("2d");
@@ -213,23 +282,40 @@
   var knopfStartPause = document.getElementById("start-pause");
   var knopfLoeschen = document.getElementById("loeschen");
   var reglerGesamtTempo = document.getElementById("gesamt-tempo");
+  var knopfStabMinus = document.getElementById("stab-minus");
+  var knopfStabPlus = document.getElementById("stab-plus");
+  var anzeigeStabAnzahl = document.getElementById("stab-anzahl");
 
   var läuft = true;
   var letzterZeitpunkt = null;
   var aktuelleSkala = 1;
+  var staebe = [];
 
-  // ---- Bedienleiste aus der Liste aufbauen ----
-  var staebe = STAB_DEFINITIONEN.map(function (def, index) {
+  // Baut einen Stab-Block (DOM) an der gegebenen Position auf und gibt das
+  // dazugehörige Stab-Objekt zurück. Wird sowohl beim Start als auch beim
+  // Hinzufügen neuer Stäbe benutzt (eine Schleife/Funktion, kein Einzelcode).
+  function stabErzeugen(index, laengeStart, tempoStart, spurStart) {
     var id = index + 1;
+    var farbe = FARBEN[index % FARBEN.length];
 
     var block = document.createElement("div");
     block.className = "block";
-    block.style.setProperty("--farbe", def.farbe);
+    block.style.setProperty("--farbe", farbe);
+
+    var titelZeile = document.createElement("div");
+    titelZeile.className = "titel-zeile";
 
     var titel = document.createElement("p");
     titel.className = "block-titel";
-    titel.textContent = def.name;
-    block.appendChild(titel);
+    titel.textContent = "Stab " + id;
+    titelZeile.appendChild(titel);
+
+    var spurKnopf = document.createElement("button");
+    spurKnopf.className = "spur-knopf";
+    spurKnopf.textContent = "Spur";
+    titelZeile.appendChild(spurKnopf);
+
+    block.appendChild(titelZeile);
 
     var zeileLaenge = document.createElement("div");
     zeileLaenge.className = "regler-zeile";
@@ -240,7 +326,7 @@
     reglerLaenge.type = "range";
     reglerLaenge.min = "0";
     reglerLaenge.max = "200";
-    reglerLaenge.value = String(def.laengeStart);
+    reglerLaenge.value = String(laengeStart);
     reglerLaenge.id = "laenge-" + id;
     zeileLaenge.appendChild(labelLaenge);
     zeileLaenge.appendChild(reglerLaenge);
@@ -255,21 +341,17 @@
     reglerTempo.type = "range";
     reglerTempo.min = "0";
     reglerTempo.max = "1000";
-    reglerTempo.value = String(def.tempoStart);
+    reglerTempo.value = String(tempoStart);
     reglerTempo.id = "tempo-" + id;
     zeileTempo.appendChild(labelTempo);
     zeileTempo.appendChild(reglerTempo);
     block.appendChild(zeileTempo);
 
-    var spurKnopf = document.createElement("button");
-    spurKnopf.className = "spur-knopf";
-    spurKnopf.textContent = "Spur";
-    block.appendChild(spurKnopf);
-
     stabListe.appendChild(block);
 
     var stab = {
-      farbe: def.farbe,
+      block: block,
+      farbe: farbe,
       reglerLaenge: reglerLaenge,
       reglerTempo: reglerTempo,
       spurKnopf: spurKnopf,
@@ -295,11 +377,43 @@
       spurAnzeigeAktualisieren();
     });
 
-    stab.spurAn = def.spurStart;
+    stab.spurAn = spurStart;
     spurAnzeigeAktualisieren();
 
     return stab;
+  }
+
+  function stabKnoepfeAktualisieren() {
+    anzeigeStabAnzahl.textContent = String(staebe.length);
+    knopfStabPlus.disabled = staebe.length >= MAX_STAEBE;
+    knopfStabMinus.disabled = staebe.length <= MIN_STAEBE;
+  }
+
+  function stabHinzufuegen() {
+    if (staebe.length >= MAX_STAEBE) {
+      return;
+    }
+    var index = staebe.length;
+    var stab = stabErzeugen(index, NEUER_STAB_WERTE.laenge, NEUER_STAB_WERTE.tempo, NEUER_STAB_WERTE.spur);
+    staebe.push(stab);
+    stabKnoepfeAktualisieren();
+    stabListe.scrollTop = stabListe.scrollHeight;
+  }
+
+  function stabEntfernen() {
+    if (staebe.length <= MIN_STAEBE) {
+      return;
+    }
+    var stab = staebe.pop();
+    stabListe.removeChild(stab.block);
+    stabKnoepfeAktualisieren();
+  }
+
+  // ---- Anfangs-Stäbe aufbauen ----
+  ANFANGS_WERTE.forEach(function (werte, index) {
+    staebe.push(stabErzeugen(index, werte.laenge, werte.tempo, werte.spur));
   });
+  stabKnoepfeAktualisieren();
 
   function passeCanvasAn() {
     var bühne = document.getElementById("bühne");
@@ -515,6 +629,9 @@
       staebe[i].punkte.length = 0;
     }
   });
+
+  knopfStabPlus.addEventListener("click", stabHinzufuegen);
+  knopfStabMinus.addEventListener("click", stabEntfernen);
 
   window.addEventListener("resize", passeCanvasAn);
   window.addEventListener("orientationchange", passeCanvasAn);
