@@ -54,6 +54,7 @@
       <button class="wahl" data-v="8">G<br><small>8 / s</small></button>
       <button class="wahl" data-v="9">H<br><small>9 / s</small></button>
       <button class="wahl" data-v="10">I<br><small>10 / s</small></button>
+      <button class="wahl" data-v="15">J<br><small>15 / s</small></button>
     </div>
     <h2>Gesamt-Tempo 100 =</h2>
     <div class="reihe" id="reiheB">
@@ -247,7 +248,8 @@
   var info = document.getElementById("info");
   function infoAktualisieren() {
     var r = rate[0];
-    info.textContent = "Stab 1 dreht sich " + r.toFixed(1).replace(".", ",") + " mal pro Sekunde";
+    var text = r >= 100 ? String(Math.round(r)) : r.toFixed(1).replace(".", ",");
+    info.textContent = "Stab 1 dreht sich " + text + " mal pro Sekunde";
   }
   function alleAnzeigen() {
     ratenBerechnen();
@@ -293,8 +295,8 @@
     setzen(start);
     markieren(start);
   }
-  auswahl("reiheA", "data-v", function (w) { umdrehProSek = w; }, 2);
-  auswahl("reiheB", "data-m", function (w) { maxFaktor = w; }, 20);
+  auswahl("reiheA", "data-v", function (w) { umdrehProSek = w; }, 15);
+  auswahl("reiheB", "data-m", function (w) { maxFaktor = w; }, 50);
 
   var knopfSP = document.getElementById("startPause");
   knopfSP.addEventListener("click", function () {
