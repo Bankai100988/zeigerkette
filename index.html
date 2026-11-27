@@ -342,6 +342,89 @@
     display: block;
   }
 
+  /* Notbremse: großes Fenster über der Zeichenfläche */
+  #notbremse {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(20, 20, 31, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 60;
+    touch-action: manipulation;
+  }
+
+  #notbremse[hidden] {
+    display: none;
+  }
+
+  .notbremse-karte {
+    width: 320px;
+    max-width: calc(100% - 32px);
+    background: #22223a;
+    border-radius: 14px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+
+  .notbremse-symbol {
+    color: #fff;
+    font-size: 64px;
+    text-align: center;
+    line-height: 1.1;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .notbremse-text {
+    color: #fff;
+    font-size: 24px;
+    font-weight: bold;
+    text-align: center;
+    margin: 0 0 6px 0;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  #notbremse-weiter, #notbremse-loeschen {
+    width: 100%;
+    min-height: 56px;
+    font-size: 20px;
+    background: #3a3a55;
+    color: #fff;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+  }
+
+  #notbremse-weiter { font-size: 24px; font-weight: bold; }
+
+  #notbremse-weiter:active, #notbremse-loeschen:active {
+    background: #4a4a6a;
+  }
+
+  /* Versteckte Messanzeige (nur mit ?fps in der Adresse) */
+  #messanzeige {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    max-width: calc(100% - 12px);
+    padding: 4px 8px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #9f9;
+    font: 12px monospace;
+    border-radius: 6px;
+    pointer-events: none;
+    z-index: 40;
+  }
+
   @media (orientation: portrait) {
     #app {
       flex-direction: column;
@@ -373,6 +456,14 @@
         <canvas id="helligkeit-canvas" width="48" height="200"></canvas>
       </div>
     </div>
+    <div id="notbremse" hidden>
+      <div class="notbremse-karte">
+        <div class="notbremse-symbol">⏸</div>
+        <p class="notbremse-text">Puh, zu viel!</p>
+        <button id="notbremse-weiter">Weiter</button>
+        <button id="notbremse-loeschen">Spuren löschen und weiter</button>
+      </div>
+    </div>
   </div>
   <div id="leiste">
     <div id="stab-liste"></div>
@@ -395,656 +486,7 @@
   </div>
 </div>
 
-<script>
-(function () {
-  "use strict";
-
-  // ---- Grundeinstellungen ----
-  var BASIS_PIXEL_PRO_LAENGE = 1.5; // Länge 100 => 150 Pixel, bei Standard-Skala (1).
-  var MAX_UMDREHUNG_PRO_SEK = 0.5;  // Tempo 100 = eine volle Umdrehung in 2 Sekunden
-  var MAX_ZEITSCHRITT = 1 / 240;    // Höchstens so viele Sekunden pro Spur-Schritt
-  var MAX_ZEITSPRUNG = 0.1;         // Mehr Zeit pro Bild wird gekappt (z. B. nach Tab-Wechsel)
-  var MAX_PUNKTE_PRO_STAB = 50000;
-  var MINDEST_BEZUGSLAENGE = 200;   // Bis hierhin sieht die Ansicht aus wie der Standard
-  var RAND_ANTEIL = 1.05;           // ca. 5 % Rand um die Kette herum
-  var SKALA_ZEITKONSTANTE = 0.15;   // Wie schnell die Ansicht weich nachzieht
-  var MIN_STAEBE = 1;
-  var MAX_STAEBE = 8;
-
-  // Feste Startfarbe je Position in der Kette (1. Stab, 2. Stab, ...).
-  var FARBEN = [
-    "#ff9800", // 1 Orange
-    "#2196f3", // 2 Blau
-    "#4caf50", // 3 Grün
-    "#e91e63", // 4 Pink
-    "#ffeb3b", // 5 Gelb
-    "#00bcd4", // 6 Türkis
-    "#f44336", // 7 Rot
-    "#9c27b0"  // 8 Violett
-  ];
-
-  // Startwerte der ersten zwei Stäbe (bleiben wie bisher).
-  var ANFANGS_WERTE = [
-    { laenge: 50, tempo: 20, spur: false },
-    { laenge: 30, tempo: 60, spur: true }
-  ];
-  // Werte für jeden neu hinzugefügten Stab.
-  var NEUER_STAB_WERTE = { laenge: 20, tempo: 80, spur: true };
-
-  var canvas = document.getElementById("zeichenflaeche");
-  var ctx = canvas.getContext("2d");
-  var stabListe = document.getElementById("stab-liste");
-  var knopfStartPause = document.getElementById("start-pause");
-  var knopfLoeschen = document.getElementById("loeschen");
-  var reglerGesamtTempo = document.getElementById("gesamt-tempo");
-  var knopfStabMinus = document.getElementById("stab-minus");
-  var knopfStabPlus = document.getElementById("stab-plus");
-  var anzeigeStabAnzahl = document.getElementById("stab-anzahl");
-
-  var läuft = true;
-  var letzterZeitpunkt = null;
-  var aktuelleSkala = 1;
-  var staebe = [];
-
-  // ================= Farbwahl =================
-  var farbwahlPopup = document.getElementById("farbwahl");
-  var farbwahlTitel = document.getElementById("farbwahl-titel");
-  var farbwahlSchliessenKnopf = document.getElementById("farbwahl-schliessen");
-  var feldCanvas = document.getElementById("farbfeld-canvas");
-  var feldCtx = feldCanvas.getContext("2d");
-  var FELD_BREITE = feldCanvas.width;
-  var FELD_HOEHE = feldCanvas.height;
-  var streifenCanvas = document.getElementById("helligkeit-canvas");
-  var streifenCtx = streifenCanvas.getContext("2d");
-  var STREIFEN_BREITE = streifenCanvas.width;
-  var STREIFEN_HOEHE = streifenCanvas.height;
-
-  var aktiverFarbStab = null;
-  var aktuellerHue = 0;   // 0 bis 360
-  var aktuellerSat = 1;   // 0 bis 1
-  var aktuellerLight = 0.5; // 0 bis 1
-
-  function hexZuHsl(hex) {
-    var r = parseInt(hex.substr(1, 2), 16) / 255;
-    var g = parseInt(hex.substr(3, 2), 16) / 255;
-    var b = parseInt(hex.substr(5, 2), 16) / 255;
-    var max = Math.max(r, g, b);
-    var min = Math.min(r, g, b);
-    var h = 0;
-    var s = 0;
-    var l = (max + min) / 2;
-
-    if (max !== min) {
-      var d = max - min;
-      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-      if (max === r) {
-        h = (g - b) / d + (g < b ? 6 : 0);
-      } else if (max === g) {
-        h = (b - r) / d + 2;
-      } else {
-        h = (r - g) / d + 4;
-      }
-      h *= 60;
-    }
-    return { h: h, s: s, l: l };
-  }
-
-  function farbeZuHsl(farbe) {
-    if (farbe.charAt(0) === "#") {
-      return hexZuHsl(farbe);
-    }
-    var treffer = /^hsl\(([\-\d.]+),\s*([\d.]+)%,\s*([\d.]+)%\)$/.exec(farbe);
-    if (treffer) {
-      return {
-        h: parseFloat(treffer[1]),
-        s: parseFloat(treffer[2]) / 100,
-        l: parseFloat(treffer[3]) / 100
-      };
-    }
-    return { h: 0, s: 0, l: 0.5 };
-  }
-
-  function hslZuCss(h, s, l) {
-    var hNorm = ((h % 360) + 360) % 360;
-    return "hsl(" + hNorm.toFixed(1) + "," + (s * 100).toFixed(1) + "%," + (l * 100).toFixed(1) + "%)";
-  }
-
-  var LESBARKEITS_SCHWELLE = 0.55; // Ab hier gilt eine Farbe als gut lesbar
-
-  // Setzt die echte Farbe eines Stabs (für Stab und Spur) und berechnet dazu
-  // eine aufgehellte "Lesefarbe" für Überschrift/Knopf-Rahmen in der Leiste,
-  // falls die echte Farbe sehr dunkel ist. Der Stab selbst behält immer seine
-  // echte Farbe.
-  function farbeAnwenden(stab, farbe) {
-    stab.farbe = farbe;
-    var hsl = farbeZuHsl(farbe);
-    var lesehelligkeit = Math.max(hsl.l, LESBARKEITS_SCHWELLE);
-    var lesefarbe = hslZuCss(hsl.h, hsl.s, lesehelligkeit);
-    var spurText = hsl.l > LESBARKEITS_SCHWELLE ? "#000" : "#fff";
-    stab.block.style.setProperty("--farbe", farbe);
-    stab.block.style.setProperty("--lesefarbe", lesefarbe);
-    stab.block.style.setProperty("--spur-text", spurText);
-  }
-
-  function farbfeldZeichnen() {
-    var w = FELD_BREITE;
-    var h = FELD_HOEHE;
-
-    var hueGrad = feldCtx.createLinearGradient(0, 0, w, 0);
-    var hueStufen = [0, 60, 120, 180, 240, 300, 360];
-    for (var i = 0; i < hueStufen.length; i++) {
-      hueGrad.addColorStop(i / (hueStufen.length - 1), "hsl(" + hueStufen[i] + ",100%,50%)");
-    }
-    feldCtx.fillStyle = hueGrad;
-    feldCtx.fillRect(0, 0, w, h);
-
-    var grauGrad = feldCtx.createLinearGradient(0, 0, 0, h);
-    grauGrad.addColorStop(0, "rgba(128,128,128,0)");
-    grauGrad.addColorStop(1, "rgba(128,128,128,1)");
-    feldCtx.fillStyle = grauGrad;
-    feldCtx.fillRect(0, 0, w, h);
-
-    var x = (aktuellerHue / 360) * w;
-    var y = (1 - aktuellerSat) * h;
-    feldCtx.beginPath();
-    feldCtx.arc(x, y, 8, 0, Math.PI * 2);
-    feldCtx.strokeStyle = "#000";
-    feldCtx.lineWidth = 3;
-    feldCtx.stroke();
-    feldCtx.beginPath();
-    feldCtx.arc(x, y, 8, 0, Math.PI * 2);
-    feldCtx.strokeStyle = "#fff";
-    feldCtx.lineWidth = 1.5;
-    feldCtx.stroke();
-  }
-
-  function helligkeitZeichnen() {
-    var w = STREIFEN_BREITE;
-    var h = STREIFEN_HOEHE;
-
-    var grad = streifenCtx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, "#fff");
-    grad.addColorStop(0.5, "hsl(" + aktuellerHue + "," + (aktuellerSat * 100) + "%,50%)");
-    grad.addColorStop(1, "#000");
-    streifenCtx.fillStyle = grad;
-    streifenCtx.fillRect(0, 0, w, h);
-
-    var y = (1 - aktuellerLight) * h;
-    streifenCtx.beginPath();
-    streifenCtx.moveTo(0, y - 7);
-    streifenCtx.lineTo(9, y);
-    streifenCtx.lineTo(0, y + 7);
-    streifenCtx.closePath();
-    streifenCtx.fillStyle = "#fff";
-    streifenCtx.fill();
-    streifenCtx.strokeStyle = "#000";
-    streifenCtx.lineWidth = 1;
-    streifenCtx.stroke();
-  }
-
-  function farbeAusWahlAktualisieren() {
-    if (!aktiverFarbStab) {
-      return;
-    }
-    farbeAnwenden(aktiverFarbStab, hslZuCss(aktuellerHue, aktuellerSat, aktuellerLight));
-  }
-
-  function farbwahlOeffnen(stab) {
-    aktiverFarbStab = stab;
-    farbwahlTitel.textContent = "Farbe – " + stab.titelElement.textContent;
-    var hsl = farbeZuHsl(stab.farbe);
-    aktuellerHue = hsl.h;
-    aktuellerSat = hsl.s;
-    aktuellerLight = hsl.l;
-    farbfeldZeichnen();
-    helligkeitZeichnen();
-    farbwahlPopup.hidden = false;
-  }
-
-  function farbwahlSchliessen() {
-    farbwahlPopup.hidden = true;
-    aktiverFarbStab = null;
-  }
-
-  farbwahlSchliessenKnopf.addEventListener("click", farbwahlSchliessen);
-
-  document.addEventListener("pointerdown", function (e) {
-    if (farbwahlPopup.hidden) {
-      return;
-    }
-    if (farbwahlPopup.contains(e.target)) {
-      return;
-    }
-    if (e.target.classList && e.target.classList.contains("farb-knopf")) {
-      return;
-    }
-    farbwahlSchliessen();
-  });
-
-  var ziehtImFeld = false;
-  function feldZeigerVerarbeiten(e) {
-    var rect = feldCanvas.getBoundingClientRect();
-    var x = Math.max(0, Math.min(FELD_BREITE, e.clientX - rect.left));
-    var y = Math.max(0, Math.min(FELD_HOEHE, e.clientY - rect.top));
-    aktuellerHue = (x / FELD_BREITE) * 360;
-    aktuellerSat = 1 - y / FELD_HOEHE;
-    farbfeldZeichnen();
-    helligkeitZeichnen();
-    farbeAusWahlAktualisieren();
-  }
-  feldCanvas.addEventListener("pointerdown", function (e) {
-    ziehtImFeld = true;
-    feldCanvas.setPointerCapture(e.pointerId);
-    feldZeigerVerarbeiten(e);
-  });
-  feldCanvas.addEventListener("pointermove", function (e) {
-    if (ziehtImFeld) {
-      feldZeigerVerarbeiten(e);
-    }
-  });
-  feldCanvas.addEventListener("pointerup", function () { ziehtImFeld = false; });
-  feldCanvas.addEventListener("pointercancel", function () { ziehtImFeld = false; });
-
-  var ziehtImStreifen = false;
-  function streifenZeigerVerarbeiten(e) {
-    var rect = streifenCanvas.getBoundingClientRect();
-    var y = Math.max(0, Math.min(STREIFEN_HOEHE, e.clientY - rect.top));
-    aktuellerLight = 1 - y / STREIFEN_HOEHE;
-    helligkeitZeichnen();
-    farbeAusWahlAktualisieren();
-  }
-  streifenCanvas.addEventListener("pointerdown", function (e) {
-    ziehtImStreifen = true;
-    streifenCanvas.setPointerCapture(e.pointerId);
-    streifenZeigerVerarbeiten(e);
-  });
-  streifenCanvas.addEventListener("pointermove", function (e) {
-    if (ziehtImStreifen) {
-      streifenZeigerVerarbeiten(e);
-    }
-  });
-  streifenCanvas.addEventListener("pointerup", function () { ziehtImStreifen = false; });
-  streifenCanvas.addEventListener("pointercancel", function () { ziehtImStreifen = false; });
-  // ================= Ende Farbwahl =================
-
-  // Baut einen Stab-Block (DOM) an der gegebenen Position auf und gibt das
-  // dazugehörige Stab-Objekt zurück. Wird sowohl beim Start als auch beim
-  // Hinzufügen neuer Stäbe benutzt (eine Schleife/Funktion, kein Einzelcode).
-  function stabErzeugen(index, laengeStart, tempoStart, spurStart) {
-    var id = index + 1;
-    var farbe = FARBEN[index % FARBEN.length];
-
-    var block = document.createElement("div");
-    block.className = "block";
-
-    var titelZeile = document.createElement("div");
-    titelZeile.className = "titel-zeile";
-
-    var titel = document.createElement("p");
-    titel.className = "block-titel";
-    titel.textContent = "Stab " + id;
-    titelZeile.appendChild(titel);
-
-    var kopfKnoepfe = document.createElement("div");
-    kopfKnoepfe.className = "kopf-knoepfe";
-
-    var richtungKnopf = document.createElement("button");
-    richtungKnopf.className = "richtung-knopf";
-    richtungKnopf.textContent = "↻";
-    kopfKnoepfe.appendChild(richtungKnopf);
-
-    var spurKnopf = document.createElement("button");
-    spurKnopf.className = "spur-knopf";
-    spurKnopf.textContent = "Spur";
-    kopfKnoepfe.appendChild(spurKnopf);
-
-    var farbKnopf = document.createElement("button");
-    farbKnopf.className = "farb-knopf";
-    kopfKnoepfe.appendChild(farbKnopf);
-
-    titelZeile.appendChild(kopfKnoepfe);
-    block.appendChild(titelZeile);
-
-    var zeileLaenge = document.createElement("div");
-    zeileLaenge.className = "regler-zeile";
-    var labelLaenge = document.createElement("label");
-    labelLaenge.textContent = "Länge";
-    labelLaenge.setAttribute("for", "laenge-" + id);
-    var reglerLaenge = document.createElement("input");
-    reglerLaenge.type = "range";
-    reglerLaenge.min = "0";
-    reglerLaenge.max = "200";
-    reglerLaenge.value = String(laengeStart);
-    reglerLaenge.id = "laenge-" + id;
-    zeileLaenge.appendChild(labelLaenge);
-    zeileLaenge.appendChild(reglerLaenge);
-    block.appendChild(zeileLaenge);
-
-    var zeileTempo = document.createElement("div");
-    zeileTempo.className = "regler-zeile";
-    var labelTempo = document.createElement("label");
-    labelTempo.textContent = "Tempo";
-    labelTempo.setAttribute("for", "tempo-" + id);
-    var reglerTempo = document.createElement("input");
-    reglerTempo.type = "range";
-    reglerTempo.min = "0";
-    reglerTempo.max = "1000";
-    reglerTempo.value = String(tempoStart);
-    reglerTempo.id = "tempo-" + id;
-    zeileTempo.appendChild(labelTempo);
-    zeileTempo.appendChild(reglerTempo);
-    block.appendChild(zeileTempo);
-
-    stabListe.appendChild(block);
-
-    var stab = {
-      block: block,
-      titelElement: titel,
-      farbe: farbe,
-      reglerLaenge: reglerLaenge,
-      reglerTempo: reglerTempo,
-      spurKnopf: spurKnopf,
-      richtungKnopf: richtungKnopf,
-      farbKnopf: farbKnopf,
-      winkelEigen: 0,
-      richtung: 1, // 1 = im Uhrzeigersinn, -1 = dagegen
-      spurAn: false,
-      punkte: []
-    };
-
-    function spurAnzeigeAktualisieren() {
-      if (stab.spurAn) {
-        spurKnopf.classList.add("an");
-      } else {
-        spurKnopf.classList.remove("an");
-      }
-    }
-
-    spurKnopf.addEventListener("click", function () {
-      stab.spurAn = !stab.spurAn;
-      if (stab.spurAn && stab.punkte.length > 0) {
-        // Lücke merken, damit keine Linie über die Pause hinweg gezogen wird.
-        stab.punkte.push(null);
-      }
-      spurAnzeigeAktualisieren();
-    });
-
-    richtungKnopf.addEventListener("click", function () {
-      stab.richtung = -stab.richtung;
-      richtungKnopf.textContent = stab.richtung === 1 ? "↻" : "↺";
-    });
-
-    farbKnopf.addEventListener("click", function () {
-      farbwahlOeffnen(stab);
-    });
-
-    stab.spurAn = spurStart;
-    spurAnzeigeAktualisieren();
-    farbeAnwenden(stab, farbe);
-
-    return stab;
-  }
-
-  function stabKnoepfeAktualisieren() {
-    anzeigeStabAnzahl.textContent = String(staebe.length);
-    knopfStabPlus.disabled = staebe.length >= MAX_STAEBE;
-    knopfStabMinus.disabled = staebe.length <= MIN_STAEBE;
-  }
-
-  function stabHinzufuegen() {
-    if (staebe.length >= MAX_STAEBE) {
-      return;
-    }
-    var index = staebe.length;
-    var stab = stabErzeugen(index, NEUER_STAB_WERTE.laenge, NEUER_STAB_WERTE.tempo, NEUER_STAB_WERTE.spur);
-    staebe.push(stab);
-    stabKnoepfeAktualisieren();
-    stabListe.scrollTop = stabListe.scrollHeight;
-  }
-
-  function stabEntfernen() {
-    if (staebe.length <= MIN_STAEBE) {
-      return;
-    }
-    var stab = staebe.pop();
-    if (aktiverFarbStab === stab) {
-      farbwahlSchliessen();
-    }
-    stabListe.removeChild(stab.block);
-    stabKnoepfeAktualisieren();
-  }
-
-  // ---- Anfangs-Stäbe aufbauen ----
-  ANFANGS_WERTE.forEach(function (werte, index) {
-    staebe.push(stabErzeugen(index, werte.laenge, werte.tempo, werte.spur));
-  });
-  stabKnoepfeAktualisieren();
-
-  function passeCanvasAn() {
-    var bühne = document.getElementById("bühne");
-    var breite = bühne.clientWidth;
-    var höhe = bühne.clientHeight;
-    var pixelVerhältnis = window.devicePixelRatio || 1;
-
-    canvas.width = Math.floor(breite * pixelVerhältnis);
-    canvas.height = Math.floor(höhe * pixelVerhältnis);
-    canvas.style.width = breite + "px";
-    canvas.style.height = höhe + "px";
-
-    ctx.setTransform(pixelVerhältnis, 0, 0, pixelVerhältnis, 0, 0);
-  }
-
-  function breite_höhe_in_css() {
-    var bühne = document.getElementById("bühne");
-    return { breite: bühne.clientWidth, höhe: bühne.clientHeight };
-  }
-
-  function zeichneStab(x1, y1, x2, y2, farbe) {
-    ctx.strokeStyle = farbe;
-    ctx.lineWidth = 8;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-  }
-
-  function zeichnePunkt(x, y, farbe, radius) {
-    ctx.fillStyle = farbe;
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  function zeichneSpur(stab, mitteX, mitteY, faktor) {
-    var punkte = stab.punkte;
-    if (punkte.length < 2) {
-      return;
-    }
-    ctx.strokeStyle = stab.farbe;
-    ctx.lineWidth = 2;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    var mussSpringen = true;
-    for (var i = 0; i < punkte.length; i++) {
-      var punkt = punkte[i];
-      if (punkt === null) {
-        mussSpringen = true;
-        continue;
-      }
-      var x = mitteX + punkt.x * faktor;
-      var y = mitteY + punkt.y * faktor;
-      if (mussSpringen) {
-        ctx.moveTo(x, y);
-        mussSpringen = false;
-      } else {
-        ctx.lineTo(x, y);
-      }
-    }
-    ctx.stroke();
-  }
-
-  // Berechnet die Kette der Punkte (Drehpunkt, Spitze 1, Spitze 2, ...) in
-  // echten Längen-Einheiten (nicht in Pixeln), ausgehend von den aktuellen
-  // Winkeln und Längen-Reglern. Wird fürs Zeichnen (mit Skala) und beim
-  // Sammeln der Spur-Punkte (ohne Skala) benutzt.
-  function ketteEchtBerechnen() {
-    var punkte = [{ x: 0, y: 0 }];
-    var x = 0;
-    var y = 0;
-    var winkelAbsolut = 0;
-    for (var i = 0; i < staebe.length; i++) {
-      var stab = staebe[i];
-      var länge = parseFloat(stab.reglerLaenge.value);
-      winkelAbsolut += stab.winkelEigen;
-      x += länge * Math.cos(winkelAbsolut);
-      y += länge * Math.sin(winkelAbsolut);
-      punkte.push({ x: x, y: y });
-    }
-    return punkte;
-  }
-
-  // Berechnet, wie klein die Ansicht gerade sein müsste, damit die ganze
-  // Kette (mit etwas Rand) in die Zeichenfläche passt. 1 = Standardgröße,
-  // kleiner als 1 = verkleinert. Nie größer als 1.
-  function zielSkalaBerechnen(breite, höhe) {
-    var gesamtlänge = 0;
-    for (var i = 0; i < staebe.length; i++) {
-      gesamtlänge += parseFloat(staebe[i].reglerLaenge.value);
-    }
-    var bezugslänge = Math.max(gesamtlänge, MINDEST_BEZUGSLAENGE);
-    var benötigterRadius = bezugslänge * BASIS_PIXEL_PRO_LAENGE * RAND_ANTEIL;
-    var verfügbarerRadius = Math.min(breite, höhe) / 2;
-
-    if (benötigterRadius <= 0) {
-      return 1;
-    }
-    return Math.min(1, verfügbarerRadius / benötigterRadius);
-  }
-
-  function zeichneBild() {
-    var größe = breite_höhe_in_css();
-    var breite = größe.breite;
-    var höhe = größe.höhe;
-
-    ctx.clearRect(0, 0, breite, höhe);
-    ctx.fillStyle = "#14141f";
-    ctx.fillRect(0, 0, breite, höhe);
-
-    var mitteX = breite / 2;
-    var mitteY = höhe / 2;
-    var faktor = BASIS_PIXEL_PRO_LAENGE * aktuelleSkala;
-
-    // Spuren zuerst, damit die Stäbe gut sichtbar darüber liegen.
-    for (var i = 0; i < staebe.length; i++) {
-      zeichneSpur(staebe[i], mitteX, mitteY, faktor);
-    }
-
-    var kette = ketteEchtBerechnen();
-    for (var j = 0; j < staebe.length; j++) {
-      var von = kette[j];
-      var bis = kette[j + 1];
-      zeichneStab(
-        mitteX + von.x * faktor, mitteY + von.y * faktor,
-        mitteX + bis.x * faktor, mitteY + bis.y * faktor,
-        staebe[j].farbe
-      );
-    }
-
-    zeichnePunkt(mitteX, mitteY, "#ffffff", 6);
-    for (var k = 0; k < staebe.length; k++) {
-      var spitze = kette[k + 1];
-      zeichnePunkt(mitteX + spitze.x * faktor, mitteY + spitze.y * faktor, staebe[k].farbe, 7);
-    }
-  }
-
-  function zeitSchrittAusführen(deltaSekunden) {
-    for (var i = 0; i < staebe.length; i++) {
-      var stab = staebe[i];
-      var tempo = parseFloat(stab.reglerTempo.value);
-      var winkelGeschwindigkeit = (tempo / 100) * MAX_UMDREHUNG_PRO_SEK * Math.PI * 2;
-      stab.winkelEigen += stab.richtung * winkelGeschwindigkeit * deltaSekunden;
-    }
-
-    var kette = ketteEchtBerechnen();
-    for (var j = 0; j < staebe.length; j++) {
-      var stab2 = staebe[j];
-      if (stab2.spurAn) {
-        var spitze = kette[j + 1];
-        stab2.punkte.push({ x: spitze.x, y: spitze.y });
-      }
-    }
-  }
-
-  function punkteBegrenzen() {
-    for (var i = 0; i < staebe.length; i++) {
-      var punkte = staebe[i].punkte;
-      if (punkte.length > MAX_PUNKTE_PRO_STAB) {
-        punkte.splice(0, punkte.length - MAX_PUNKTE_PRO_STAB);
-      }
-    }
-  }
-
-  function skalaNachziehen(deltaSekunden, breite, höhe) {
-    var zielSkala = zielSkalaBerechnen(breite, höhe);
-    if (deltaSekunden <= 0) {
-      return;
-    }
-    var anteil = 1 - Math.exp(-deltaSekunden / SKALA_ZEITKONSTANTE);
-    aktuelleSkala += (zielSkala - aktuelleSkala) * anteil;
-  }
-
-  function schritt(zeitpunkt) {
-    if (letzterZeitpunkt === null) {
-      letzterZeitpunkt = zeitpunkt;
-    }
-    var deltaSekunden = (zeitpunkt - letzterZeitpunkt) / 1000;
-    if (deltaSekunden > MAX_ZEITSPRUNG) {
-      deltaSekunden = MAX_ZEITSPRUNG;
-    }
-    letzterZeitpunkt = zeitpunkt;
-
-    var größe = breite_höhe_in_css();
-    skalaNachziehen(deltaSekunden, größe.breite, größe.höhe);
-
-    var gesamtTempo = parseFloat(reglerGesamtTempo.value) / 100;
-    var bewegungsSekunden = läuft ? deltaSekunden * gesamtTempo : 0;
-
-    if (bewegungsSekunden > 0) {
-      var anzahlSchritte = Math.max(1, Math.ceil(bewegungsSekunden / MAX_ZEITSCHRITT));
-      var teilSchritt = bewegungsSekunden / anzahlSchritte;
-      for (var s = 0; s < anzahlSchritte; s++) {
-        zeitSchrittAusführen(teilSchritt);
-      }
-      punkteBegrenzen();
-    }
-
-    zeichneBild();
-    requestAnimationFrame(schritt);
-  }
-
-  knopfStartPause.addEventListener("click", function () {
-    läuft = !läuft;
-    knopfStartPause.textContent = läuft ? "⏸" : "▶";
-  });
-
-  knopfLoeschen.addEventListener("click", function () {
-    for (var i = 0; i < staebe.length; i++) {
-      staebe[i].punkte.length = 0;
-    }
-  });
-
-  knopfStabPlus.addEventListener("click", stabHinzufuegen);
-  knopfStabMinus.addEventListener("click", stabEntfernen);
-
-  window.addEventListener("resize", passeCanvasAn);
-  window.addEventListener("orientationchange", passeCanvasAn);
-
-  passeCanvasAn();
-  requestAnimationFrame(schritt);
-})();
-</script>
+<script src="app.js"></script>
 <script>
 // Service Worker für den Offline-Betrieb anmelden. Klappt nur über einen
 // Server (http/https), nicht beim Öffnen der Datei per Doppelklick.

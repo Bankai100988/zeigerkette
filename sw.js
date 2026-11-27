@@ -1,13 +1,14 @@
 // Service Worker: sorgt dafür, dass die App auch ohne Internet läuft.
 
 // Versionsnummer erhöhen, wenn sich die Dateiliste unten ändert.
-const CACHE_NAME = "zeigerkette-v1";
+const CACHE_NAME = "zeigerkette-v2";
 
 // Alle Dateien, die das Programm braucht. Neue Dateien hier ergänzen.
 // Alle Pfade relativ, weil die App unter /zeigerkette/ veröffentlicht wird.
 const DATEIEN = [
   "./",
   "./index.html",
+  "./app.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

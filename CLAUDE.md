@@ -22,8 +22,8 @@ Programmierer und lernt GitHub dabei.
 - Es soll später auch ohne Internet laufen. Deshalb: keine Dateien aus dem
   Internet laden (keine CDN-Links, keine externen Schriften).
 - Veröffentlicht wird später über GitHub Pages.
-- PWA: `manifest.webmanifest`, `sw.js` und der Ordner `icons/` gehören zum
-  Programm. Alle Pfade sind relativ, weil es unter `/zeigerkette/`
+- PWA: `app.js` (das Programm selbst), `manifest.webmanifest`, `sw.js` und
+  der Ordner `icons/` gehören zum Programm. Alle Pfade sind relativ, weil es unter `/zeigerkette/`
   veröffentlicht wird. Kommt eine neue Datei dazu, die das Programm braucht,
   muss sie in der Dateiliste oben in `sw.js` stehen. Ändert sich diese
   Liste, die Versionsnummer des Caches in `sw.js` erhöhen.
@@ -56,6 +56,17 @@ Programmierer und lernt GitHub dabei.
   Der Vater entscheidet.
 - Kurz und einfach schreiben, so dass auch ein Kind es versteht. Fachwörter
   erklären.
+
+## Leistung (feste Regeln)
+- Die Spuren werden nie in jedem Bild komplett neu gemalt. Neue Stücke werden
+  auf die Spur-Ebene dazugemalt. Ein Neuaufbau geschieht nur bei einer
+  Änderung der Ansicht und schrittweise.
+- In der Rechen- und Zeichenschleife werden keine Werte aus der Seite gelesen
+  und keine neuen Objekte angelegt.
+- Zeitbudget pro Bild, Wächter und Notbremse bleiben immer eingebaut und
+  dürfen nicht abgeschwächt werden.
+- Jede neue Funktion wird mit gebremstem Prozessor (Chrome, 6-fach) und
+  `?fps` geprüft, bevor sie fertig ist.
 
 ## Datenschutz
 Keine Namen, Fotos oder persönlichen Daten des Kindes in Code, Dateien,
