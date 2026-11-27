@@ -30,7 +30,7 @@ Programmierer und lernt GitHub dabei.
 - Nichts kann kaputtgehen: Jede Einstellung ist erlaubt.
 - Länge ist ein Wert von 0 bis 200, Tempo pro Stab von 0 bis 1000, beide
   proportional (die Hälfte des Höchstwerts ist halb so viel/schnell).
-  Gesamt-Tempo geht von 0 bis 5000 und wirkt zusätzlich auf alle Stäbe.
+  Gesamt-Tempo geht von 0 bis 3000 und wirkt zusätzlich auf alle Stäbe.
 - Jeder Stab hat automatisch eine eigene, feste Farbe.
 - Jeder Stab dreht sich relativ zum vorherigen Stab (sein Tempo kommt zur
   Drehung des Stabs davor dazu).
