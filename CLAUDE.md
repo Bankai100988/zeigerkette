@@ -22,6 +22,11 @@ Programmierer und lernt GitHub dabei.
 - Es soll später auch ohne Internet laufen. Deshalb: keine Dateien aus dem
   Internet laden (keine CDN-Links, keine externen Schriften).
 - Veröffentlicht wird später über GitHub Pages.
+- PWA: `manifest.webmanifest`, `sw.js` und der Ordner `icons/` gehören zum
+  Programm. Alle Pfade sind relativ, weil es unter `/zeigerkette/`
+  veröffentlicht wird. Kommt eine neue Datei dazu, die das Programm braucht,
+  muss sie in der Dateiliste oben in `sw.js` stehen. Ändert sich diese
+  Liste, die Versionsnummer des Caches in `sw.js` erhöhen.
 
 ## Bedienung (feste Regeln)
 - Große Knöpfe und Regler, die man mit dem Finger trifft (mindestens ca. 48 px).
