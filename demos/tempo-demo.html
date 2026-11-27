@@ -21,8 +21,7 @@
     background: #1f1f30;
   }
   h2 { font-size: 15px; font-weight: 600; margin: 12px 0 6px; color: #c8c8e0; }
-  .reihe { display: flex; gap: 8px; }
-  .reihe button.wahl { flex: 0 0 108px; width: 108px; }
+  .reihe { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   button {
     min-height: 52px; font-size: 20px; font-weight: 600;
     border: 2px solid #4a4a6a; border-radius: 12px;
@@ -49,6 +48,12 @@
       <button class="wahl" data-v="1">A<br><small>1 / s</small></button>
       <button class="wahl" data-v="2">B<br><small>2 / s</small></button>
       <button class="wahl" data-v="4">C<br><small>4 / s</small></button>
+      <button class="wahl" data-v="5">D<br><small>5 / s</small></button>
+      <button class="wahl" data-v="6">E<br><small>6 / s</small></button>
+      <button class="wahl" data-v="7">F<br><small>7 / s</small></button>
+      <button class="wahl" data-v="8">G<br><small>8 / s</small></button>
+      <button class="wahl" data-v="9">H<br><small>9 / s</small></button>
+      <button class="wahl" data-v="10">I<br><small>10 / s</small></button>
     </div>
     <h2>Gesamt-Tempo 100 =</h2>
     <div class="reihe" id="reiheB">
