@@ -177,7 +177,7 @@
     <div id="aktionen">
       <div class="regler-zeile" id="gesamt-tempo-zeile">
         <label for="gesamt-tempo">Gesamt-Tempo</label>
-        <input type="range" id="gesamt-tempo" min="0" max="200" value="100">
+        <input type="range" id="gesamt-tempo" min="0" max="5000" value="100">
       </div>
       <div class="knopf-zeile">
         <button id="start-pause">⏸</button>
@@ -254,7 +254,7 @@
     var reglerTempo = document.createElement("input");
     reglerTempo.type = "range";
     reglerTempo.min = "0";
-    reglerTempo.max = "200";
+    reglerTempo.max = "1000";
     reglerTempo.value = String(def.tempoStart);
     reglerTempo.id = "tempo-" + id;
     zeileTempo.appendChild(labelTempo);

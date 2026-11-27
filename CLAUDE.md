@@ -28,8 +28,9 @@ Programmierer und lernt GitHub dabei.
 - Kaum Text. Alle Beschriftungen auf Deutsch.
 - Alles wirkt sofort, es gibt keinen „Übernehmen"-Knopf.
 - Nichts kann kaputtgehen: Jede Einstellung ist erlaubt.
-- Länge und Geschwindigkeit sind Werte von 0 bis 200 und proportional
-  (100 ist halb so viel wie 200).
+- Länge ist ein Wert von 0 bis 200, Tempo pro Stab von 0 bis 1000, beide
+  proportional (die Hälfte des Höchstwerts ist halb so viel/schnell).
+  Gesamt-Tempo geht von 0 bis 5000 und wirkt zusätzlich auf alle Stäbe.
 - Jeder Stab hat automatisch eine eigene, feste Farbe.
 - Jeder Stab dreht sich relativ zum vorherigen Stab (sein Tempo kommt zur
   Drehung des Stabs davor dazu).
