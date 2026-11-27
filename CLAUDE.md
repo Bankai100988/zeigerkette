@@ -31,7 +31,9 @@ Programmierer und lernt GitHub dabei.
 - Länge ist ein Wert von 0 bis 200, Tempo pro Stab von 0 bis 1000, beide
   proportional (die Hälfte des Höchstwerts ist halb so viel/schnell).
   Gesamt-Tempo geht von 0 bis 3000 und wirkt zusätzlich auf alle Stäbe.
-- Jeder Stab hat automatisch eine eigene, feste Farbe.
+- Jeder Stab bekommt automatisch eine eigene Startfarbe und kann seine Farbe
+  mit dem Farbwähler (Farbfeld und Helligkeitsregler) ändern. Die Farbe gilt
+  für Stab und Spur zusammen.
 - Jeder Stab dreht sich relativ zum vorherigen Stab (sein Tempo kommt zur
   Drehung des Stabs davor dazu).
 

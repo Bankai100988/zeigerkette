@@ -87,8 +87,9 @@
 
   .titel-zeile {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
   }
 
   .block-titel {
@@ -96,7 +97,12 @@
     font-size: 17px;
     font-weight: bold;
     margin: 0;
-    flex: 1 1 auto;
+    flex: 1 1 90px;
+  }
+
+  .kopf-knoepfe {
+    display: flex;
+    gap: 8px;
   }
 
   .regler-zeile {
@@ -151,6 +157,16 @@
   .spur-knopf.an {
     background: var(--farbe);
     color: #14141f;
+  }
+
+  .farb-knopf {
+    flex: 0 0 48px;
+    min-height: 48px;
+    border-radius: 10px;
+    border: 3px solid #fff;
+    background: var(--farbe);
+    padding: 0;
+    cursor: pointer;
   }
 
   .staebe-zeile {
@@ -209,6 +225,73 @@
     background: #4a4a6a;
   }
 
+  #farbwahl {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    max-width: calc(100% - 32px);
+    background: #22223a;
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    z-index: 50;
+    touch-action: none;
+    box-sizing: border-box;
+  }
+
+  #farbwahl[hidden] {
+    display: none;
+  }
+
+  .farbwahl-kopf {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .farbwahl-kopf span {
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  #farbwahl-schliessen {
+    flex: 0 0 48px;
+    min-height: 48px;
+    font-size: 22px;
+    font-weight: bold;
+    background: #3a3a55;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+
+  #farbwahl-schliessen:active {
+    background: #4a4a6a;
+  }
+
+  .farbwahl-inhalt {
+    display: flex;
+    gap: 10px;
+  }
+
+  #farbfeld-canvas {
+    border-radius: 8px;
+    touch-action: none;
+    cursor: crosshair;
+    display: block;
+  }
+
+  #helligkeit-canvas {
+    border-radius: 8px;
+    touch-action: none;
+    cursor: pointer;
+    display: block;
+  }
+
   @media (orientation: portrait) {
     #app {
       flex-direction: column;
@@ -230,6 +313,16 @@
 <div id="app">
   <div id="bühne">
     <canvas id="zeichenflaeche"></canvas>
+    <div id="farbwahl" hidden>
+      <div class="farbwahl-kopf">
+        <span id="farbwahl-titel">Farbe</span>
+        <button id="farbwahl-schliessen">✕</button>
+      </div>
+      <div class="farbwahl-inhalt">
+        <canvas id="farbfeld-canvas" width="280" height="200"></canvas>
+        <canvas id="helligkeit-canvas" width="48" height="200"></canvas>
+      </div>
+    </div>
   </div>
   <div id="leiste">
     <div id="stab-liste"></div>
@@ -268,7 +361,7 @@
   var MIN_STAEBE = 1;
   var MAX_STAEBE = 8;
 
-  // Feste Farbe je Position in der Kette (1. Stab, 2. Stab, ...).
+  // Feste Startfarbe je Position in der Kette (1. Stab, 2. Stab, ...).
   var FARBEN = [
     "#ff9800", // 1 Orange
     "#2196f3", // 2 Blau
@@ -303,6 +396,215 @@
   var aktuelleSkala = 1;
   var staebe = [];
 
+  // ================= Farbwahl =================
+  var farbwahlPopup = document.getElementById("farbwahl");
+  var farbwahlTitel = document.getElementById("farbwahl-titel");
+  var farbwahlSchliessenKnopf = document.getElementById("farbwahl-schliessen");
+  var feldCanvas = document.getElementById("farbfeld-canvas");
+  var feldCtx = feldCanvas.getContext("2d");
+  var FELD_BREITE = feldCanvas.width;
+  var FELD_HOEHE = feldCanvas.height;
+  var streifenCanvas = document.getElementById("helligkeit-canvas");
+  var streifenCtx = streifenCanvas.getContext("2d");
+  var STREIFEN_BREITE = streifenCanvas.width;
+  var STREIFEN_HOEHE = streifenCanvas.height;
+
+  var aktiverFarbStab = null;
+  var aktuellerHue = 0;   // 0 bis 360
+  var aktuellerSat = 1;   // 0 bis 1
+  var aktuellerLight = 0.5; // 0 bis 1
+
+  function hexZuHsl(hex) {
+    var r = parseInt(hex.substr(1, 2), 16) / 255;
+    var g = parseInt(hex.substr(3, 2), 16) / 255;
+    var b = parseInt(hex.substr(5, 2), 16) / 255;
+    var max = Math.max(r, g, b);
+    var min = Math.min(r, g, b);
+    var h = 0;
+    var s = 0;
+    var l = (max + min) / 2;
+
+    if (max !== min) {
+      var d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === r) {
+        h = (g - b) / d + (g < b ? 6 : 0);
+      } else if (max === g) {
+        h = (b - r) / d + 2;
+      } else {
+        h = (r - g) / d + 4;
+      }
+      h *= 60;
+    }
+    return { h: h, s: s, l: l };
+  }
+
+  function farbeZuHsl(farbe) {
+    if (farbe.charAt(0) === "#") {
+      return hexZuHsl(farbe);
+    }
+    var treffer = /^hsl\(([\-\d.]+),\s*([\d.]+)%,\s*([\d.]+)%\)$/.exec(farbe);
+    if (treffer) {
+      return {
+        h: parseFloat(treffer[1]),
+        s: parseFloat(treffer[2]) / 100,
+        l: parseFloat(treffer[3]) / 100
+      };
+    }
+    return { h: 0, s: 0, l: 0.5 };
+  }
+
+  function hslZuCss(h, s, l) {
+    var hNorm = ((h % 360) + 360) % 360;
+    return "hsl(" + hNorm.toFixed(1) + "," + (s * 100).toFixed(1) + "%," + (l * 100).toFixed(1) + "%)";
+  }
+
+  function stabFarbeSetzen(stab, farbe) {
+    stab.farbe = farbe;
+    stab.block.style.setProperty("--farbe", farbe);
+  }
+
+  function farbfeldZeichnen() {
+    var w = FELD_BREITE;
+    var h = FELD_HOEHE;
+
+    var hueGrad = feldCtx.createLinearGradient(0, 0, w, 0);
+    var hueStufen = [0, 60, 120, 180, 240, 300, 360];
+    for (var i = 0; i < hueStufen.length; i++) {
+      hueGrad.addColorStop(i / (hueStufen.length - 1), "hsl(" + hueStufen[i] + ",100%,50%)");
+    }
+    feldCtx.fillStyle = hueGrad;
+    feldCtx.fillRect(0, 0, w, h);
+
+    var grauGrad = feldCtx.createLinearGradient(0, 0, 0, h);
+    grauGrad.addColorStop(0, "rgba(128,128,128,0)");
+    grauGrad.addColorStop(1, "rgba(128,128,128,1)");
+    feldCtx.fillStyle = grauGrad;
+    feldCtx.fillRect(0, 0, w, h);
+
+    var x = (aktuellerHue / 360) * w;
+    var y = (1 - aktuellerSat) * h;
+    feldCtx.beginPath();
+    feldCtx.arc(x, y, 8, 0, Math.PI * 2);
+    feldCtx.strokeStyle = "#000";
+    feldCtx.lineWidth = 3;
+    feldCtx.stroke();
+    feldCtx.beginPath();
+    feldCtx.arc(x, y, 8, 0, Math.PI * 2);
+    feldCtx.strokeStyle = "#fff";
+    feldCtx.lineWidth = 1.5;
+    feldCtx.stroke();
+  }
+
+  function helligkeitZeichnen() {
+    var w = STREIFEN_BREITE;
+    var h = STREIFEN_HOEHE;
+
+    var grad = streifenCtx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, "#fff");
+    grad.addColorStop(0.5, "hsl(" + aktuellerHue + "," + (aktuellerSat * 100) + "%,50%)");
+    grad.addColorStop(1, "#000");
+    streifenCtx.fillStyle = grad;
+    streifenCtx.fillRect(0, 0, w, h);
+
+    var y = (1 - aktuellerLight) * h;
+    streifenCtx.beginPath();
+    streifenCtx.moveTo(0, y - 7);
+    streifenCtx.lineTo(9, y);
+    streifenCtx.lineTo(0, y + 7);
+    streifenCtx.closePath();
+    streifenCtx.fillStyle = "#fff";
+    streifenCtx.fill();
+    streifenCtx.strokeStyle = "#000";
+    streifenCtx.lineWidth = 1;
+    streifenCtx.stroke();
+  }
+
+  function farbeAusWahlAktualisieren() {
+    if (!aktiverFarbStab) {
+      return;
+    }
+    stabFarbeSetzen(aktiverFarbStab, hslZuCss(aktuellerHue, aktuellerSat, aktuellerLight));
+  }
+
+  function farbwahlOeffnen(stab) {
+    aktiverFarbStab = stab;
+    farbwahlTitel.textContent = "Farbe – " + stab.titelElement.textContent;
+    var hsl = farbeZuHsl(stab.farbe);
+    aktuellerHue = hsl.h;
+    aktuellerSat = hsl.s;
+    aktuellerLight = hsl.l;
+    farbfeldZeichnen();
+    helligkeitZeichnen();
+    farbwahlPopup.hidden = false;
+  }
+
+  function farbwahlSchliessen() {
+    farbwahlPopup.hidden = true;
+    aktiverFarbStab = null;
+  }
+
+  farbwahlSchliessenKnopf.addEventListener("click", farbwahlSchliessen);
+
+  document.addEventListener("pointerdown", function (e) {
+    if (farbwahlPopup.hidden) {
+      return;
+    }
+    if (farbwahlPopup.contains(e.target)) {
+      return;
+    }
+    if (e.target.classList && e.target.classList.contains("farb-knopf")) {
+      return;
+    }
+    farbwahlSchliessen();
+  });
+
+  var ziehtImFeld = false;
+  function feldZeigerVerarbeiten(e) {
+    var rect = feldCanvas.getBoundingClientRect();
+    var x = Math.max(0, Math.min(FELD_BREITE, e.clientX - rect.left));
+    var y = Math.max(0, Math.min(FELD_HOEHE, e.clientY - rect.top));
+    aktuellerHue = (x / FELD_BREITE) * 360;
+    aktuellerSat = 1 - y / FELD_HOEHE;
+    farbfeldZeichnen();
+    helligkeitZeichnen();
+    farbeAusWahlAktualisieren();
+  }
+  feldCanvas.addEventListener("pointerdown", function (e) {
+    ziehtImFeld = true;
+    feldCanvas.setPointerCapture(e.pointerId);
+    feldZeigerVerarbeiten(e);
+  });
+  feldCanvas.addEventListener("pointermove", function (e) {
+    if (ziehtImFeld) {
+      feldZeigerVerarbeiten(e);
+    }
+  });
+  feldCanvas.addEventListener("pointerup", function () { ziehtImFeld = false; });
+  feldCanvas.addEventListener("pointercancel", function () { ziehtImFeld = false; });
+
+  var ziehtImStreifen = false;
+  function streifenZeigerVerarbeiten(e) {
+    var rect = streifenCanvas.getBoundingClientRect();
+    var y = Math.max(0, Math.min(STREIFEN_HOEHE, e.clientY - rect.top));
+    aktuellerLight = 1 - y / STREIFEN_HOEHE;
+    helligkeitZeichnen();
+    farbeAusWahlAktualisieren();
+  }
+  streifenCanvas.addEventListener("pointerdown", function (e) {
+    ziehtImStreifen = true;
+    streifenCanvas.setPointerCapture(e.pointerId);
+    streifenZeigerVerarbeiten(e);
+  });
+  streifenCanvas.addEventListener("pointermove", function (e) {
+    if (ziehtImStreifen) {
+      streifenZeigerVerarbeiten(e);
+    }
+  });
+  streifenCanvas.addEventListener("pointerup", function () { ziehtImStreifen = false; });
+  streifenCanvas.addEventListener("pointercancel", function () { ziehtImStreifen = false; });
+  // ================= Ende Farbwahl =================
+
   // Baut einen Stab-Block (DOM) an der gegebenen Position auf und gibt das
   // dazugehörige Stab-Objekt zurück. Wird sowohl beim Start als auch beim
   // Hinzufügen neuer Stäbe benutzt (eine Schleife/Funktion, kein Einzelcode).
@@ -322,16 +624,24 @@
     titel.textContent = "Stab " + id;
     titelZeile.appendChild(titel);
 
+    var kopfKnoepfe = document.createElement("div");
+    kopfKnoepfe.className = "kopf-knoepfe";
+
     var richtungKnopf = document.createElement("button");
     richtungKnopf.className = "richtung-knopf";
     richtungKnopf.textContent = "↻";
-    titelZeile.appendChild(richtungKnopf);
+    kopfKnoepfe.appendChild(richtungKnopf);
 
     var spurKnopf = document.createElement("button");
     spurKnopf.className = "spur-knopf";
     spurKnopf.textContent = "Spur";
-    titelZeile.appendChild(spurKnopf);
+    kopfKnoepfe.appendChild(spurKnopf);
 
+    var farbKnopf = document.createElement("button");
+    farbKnopf.className = "farb-knopf";
+    kopfKnoepfe.appendChild(farbKnopf);
+
+    titelZeile.appendChild(kopfKnoepfe);
     block.appendChild(titelZeile);
 
     var zeileLaenge = document.createElement("div");
@@ -368,11 +678,13 @@
 
     var stab = {
       block: block,
+      titelElement: titel,
       farbe: farbe,
       reglerLaenge: reglerLaenge,
       reglerTempo: reglerTempo,
       spurKnopf: spurKnopf,
       richtungKnopf: richtungKnopf,
+      farbKnopf: farbKnopf,
       winkelEigen: 0,
       richtung: 1, // 1 = im Uhrzeigersinn, -1 = dagegen
       spurAn: false,
@@ -399,6 +711,10 @@
     richtungKnopf.addEventListener("click", function () {
       stab.richtung = -stab.richtung;
       richtungKnopf.textContent = stab.richtung === 1 ? "↻" : "↺";
+    });
+
+    farbKnopf.addEventListener("click", function () {
+      farbwahlOeffnen(stab);
     });
 
     stab.spurAn = spurStart;
@@ -429,6 +745,9 @@
       return;
     }
     var stab = staebe.pop();
+    if (aktiverFarbStab === stab) {
+      farbwahlSchliessen();
+    }
     stabListe.removeChild(stab.block);
     stabKnoepfeAktualisieren();
   }
