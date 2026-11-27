@@ -23,11 +23,12 @@
     width: 100%;
     height: 100%;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
   }
 
   #bühne {
     flex: 1 1 auto;
+    min-width: 0;
     min-height: 0;
     position: relative;
   }
@@ -38,38 +39,52 @@
     height: 100%;
   }
 
-  #bedienleiste {
-    flex: 0 0 auto;
+  #leiste {
+    flex: 0 0 320px;
+    width: 320px;
+    max-width: 320px;
+    min-height: 0;
     background: #1f1f30;
     display: flex;
-    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #stab-liste {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-sizing: border-box;
+  }
+
+  #aktionen {
+    flex: 0 0 auto;
+    display: flex;
     gap: 10px;
     padding: 10px;
     box-sizing: border-box;
-    flex-wrap: wrap;
+    border-top: 1px solid #333345;
   }
 
   .block {
-    flex: 1 1 260px;
     background: #272740;
     border-radius: 14px;
     padding: 10px 14px;
     display: flex;
     flex-direction: column;
-    justify-content: center;
     gap: 6px;
-    min-width: 220px;
+    box-sizing: border-box;
   }
 
   .block-titel {
-    color: #fff;
+    color: var(--farbe);
     font-size: 18px;
     font-weight: bold;
     margin: 0 0 2px 0;
   }
-
-  #block1 .block-titel { color: #ff9800; }
-  #block2 .block-titel { color: #2196f3; }
 
   .regler-zeile {
     display: flex;
@@ -90,10 +105,26 @@
     width: 100%;
   }
 
-  #start-pause {
-    flex: 0 0 90px;
-    min-width: 90px;
-    font-size: 36px;
+  .spur-knopf {
+    min-height: 48px;
+    font-size: 16px;
+    font-weight: bold;
+    border-radius: 10px;
+    border: 2px solid var(--farbe);
+    background: transparent;
+    color: var(--farbe);
+    cursor: pointer;
+  }
+
+  .spur-knopf.an {
+    background: var(--farbe);
+    color: #14141f;
+  }
+
+  #start-pause, #loeschen {
+    flex: 1 1 0;
+    min-height: 56px;
+    font-size: 22px;
     background: #3a3a55;
     color: #fff;
     border: none;
@@ -101,8 +132,26 @@
     cursor: pointer;
   }
 
-  #start-pause:active {
+  #start-pause { font-size: 32px; }
+
+  #start-pause:active, #loeschen:active {
     background: #4a4a6a;
+  }
+
+  @media (orientation: portrait) {
+    #app {
+      flex-direction: column;
+    }
+    #bühne {
+      flex: 1 1 auto;
+      min-height: 120px;
+    }
+    #leiste {
+      flex: 0 0 auto;
+      width: 100%;
+      max-width: 100%;
+      max-height: 45vh;
+    }
   }
 </style>
 </head>
@@ -111,30 +160,12 @@
   <div id="bühne">
     <canvas id="zeichenflaeche"></canvas>
   </div>
-  <div id="bedienleiste">
-    <div class="block" id="block1">
-      <p class="block-titel">Stab 1</p>
-      <div class="regler-zeile">
-        <label for="laenge1">Länge</label>
-        <input type="range" id="laenge1" min="0" max="100" value="50">
-      </div>
-      <div class="regler-zeile">
-        <label for="tempo1">Tempo</label>
-        <input type="range" id="tempo1" min="0" max="100" value="20">
-      </div>
+  <div id="leiste">
+    <div id="stab-liste"></div>
+    <div id="aktionen">
+      <button id="start-pause">⏸</button>
+      <button id="loeschen">Löschen</button>
     </div>
-    <div class="block" id="block2">
-      <p class="block-titel">Stab 2</p>
-      <div class="regler-zeile">
-        <label for="laenge2">Länge</label>
-        <input type="range" id="laenge2" min="0" max="100" value="30">
-      </div>
-      <div class="regler-zeile">
-        <label for="tempo2">Tempo</label>
-        <input type="range" id="tempo2" min="0" max="100" value="60">
-      </div>
-    </div>
-    <button id="start-pause">⏸</button>
   </div>
 </div>
 
@@ -145,20 +176,107 @@
   // ---- Grundeinstellungen ----
   var PIXEL_PRO_LAENGE = 1.5;      // Länge 100 => 150 Pixel. Fester Maßstab.
   var MAX_UMDREHUNG_PRO_SEK = 0.5; // Tempo 100 = eine volle Umdrehung in 2 Sekunden
+  var MAX_ZEITSCHRITT = 1 / 120;   // Höchstens so viele Sekunden pro Spur-Schritt
+  var MAX_ZEITSPRUNG = 0.25;       // Mehr Zeit pro Bild wird gekappt (z. B. nach Tab-Wechsel)
+  var MAX_PUNKTE_PRO_STAB = 50000;
+
+  // ---- Stäbe (aus einer Liste gebaut, nicht einzeln pro Stab) ----
+  var STAB_DEFINITIONEN = [
+    { name: "Stab 1", farbe: "#ff9800", laengeStart: 50, tempoStart: 20, spurStart: false },
+    { name: "Stab 2", farbe: "#2196f3", laengeStart: 30, tempoStart: 60, spurStart: true }
+  ];
 
   var canvas = document.getElementById("zeichenflaeche");
   var ctx = canvas.getContext("2d");
-
-  var reglerLaenge1 = document.getElementById("laenge1");
-  var reglerTempo1 = document.getElementById("tempo1");
-  var reglerLaenge2 = document.getElementById("laenge2");
-  var reglerTempo2 = document.getElementById("tempo2");
+  var stabListe = document.getElementById("stab-liste");
   var knopfStartPause = document.getElementById("start-pause");
+  var knopfLoeschen = document.getElementById("loeschen");
 
-  var winkel1 = 0;
-  var winkel2 = 0;
   var läuft = true;
   var letzterZeitpunkt = null;
+
+  // ---- Bedienleiste aus der Liste aufbauen ----
+  var staebe = STAB_DEFINITIONEN.map(function (def, index) {
+    var id = index + 1;
+
+    var block = document.createElement("div");
+    block.className = "block";
+    block.style.setProperty("--farbe", def.farbe);
+
+    var titel = document.createElement("p");
+    titel.className = "block-titel";
+    titel.textContent = def.name;
+    block.appendChild(titel);
+
+    var zeileLaenge = document.createElement("div");
+    zeileLaenge.className = "regler-zeile";
+    var labelLaenge = document.createElement("label");
+    labelLaenge.textContent = "Länge";
+    labelLaenge.setAttribute("for", "laenge-" + id);
+    var reglerLaenge = document.createElement("input");
+    reglerLaenge.type = "range";
+    reglerLaenge.min = "0";
+    reglerLaenge.max = "100";
+    reglerLaenge.value = String(def.laengeStart);
+    reglerLaenge.id = "laenge-" + id;
+    zeileLaenge.appendChild(labelLaenge);
+    zeileLaenge.appendChild(reglerLaenge);
+    block.appendChild(zeileLaenge);
+
+    var zeileTempo = document.createElement("div");
+    zeileTempo.className = "regler-zeile";
+    var labelTempo = document.createElement("label");
+    labelTempo.textContent = "Tempo";
+    labelTempo.setAttribute("for", "tempo-" + id);
+    var reglerTempo = document.createElement("input");
+    reglerTempo.type = "range";
+    reglerTempo.min = "0";
+    reglerTempo.max = "100";
+    reglerTempo.value = String(def.tempoStart);
+    reglerTempo.id = "tempo-" + id;
+    zeileTempo.appendChild(labelTempo);
+    zeileTempo.appendChild(reglerTempo);
+    block.appendChild(zeileTempo);
+
+    var spurKnopf = document.createElement("button");
+    spurKnopf.className = "spur-knopf";
+    spurKnopf.textContent = "Spur";
+    block.appendChild(spurKnopf);
+
+    stabListe.appendChild(block);
+
+    var stab = {
+      farbe: def.farbe,
+      reglerLaenge: reglerLaenge,
+      reglerTempo: reglerTempo,
+      spurKnopf: spurKnopf,
+      winkelEigen: 0,
+      spurAn: false,
+      punkte: []
+    };
+
+    function spurAnzeigeAktualisieren() {
+      if (stab.spurAn) {
+        spurKnopf.classList.add("an");
+      } else {
+        spurKnopf.classList.remove("an");
+      }
+    }
+
+    spurKnopf.addEventListener("click", function () {
+      stab.spurAn = !stab.spurAn;
+      if (stab.spurAn && stab.punkte.length > 0) {
+        // Lücke merken, damit keine Linie über die Pause hinweg gezogen wird.
+        stab.punkte.push(null);
+      }
+      spurAnzeigeAktualisieren();
+    });
+
+    stab.spurAn = def.spurStart;
+    spurAnzeigeAktualisieren();
+
+    return stab;
+  });
 
   function passeCanvasAn() {
     var bühne = document.getElementById("bühne");
@@ -196,6 +314,54 @@
     ctx.fill();
   }
 
+  function zeichneSpur(stab, mitteX, mitteY) {
+    var punkte = stab.punkte;
+    if (punkte.length < 2) {
+      return;
+    }
+    ctx.strokeStyle = stab.farbe;
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    var mussSpringen = true;
+    for (var i = 0; i < punkte.length; i++) {
+      var punkt = punkte[i];
+      if (punkt === null) {
+        mussSpringen = true;
+        continue;
+      }
+      var x = mitteX + punkt.x;
+      var y = mitteY + punkt.y;
+      if (mussSpringen) {
+        ctx.moveTo(x, y);
+        mussSpringen = false;
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    ctx.stroke();
+  }
+
+  // Berechnet die Kette der Punkte (Drehpunkt, Spitze 1, Spitze 2, ...) relativ
+  // zur Mitte, ausgehend von den aktuellen Winkeln. Wird fürs Zeichnen und beim
+  // Sammeln der Spur-Punkte benutzt.
+  function ketteBerechnen() {
+    var punkte = [{ x: 0, y: 0 }];
+    var x = 0;
+    var y = 0;
+    var winkelAbsolut = 0;
+    for (var i = 0; i < staebe.length; i++) {
+      var stab = staebe[i];
+      var länge = parseFloat(stab.reglerLaenge.value) * PIXEL_PRO_LAENGE;
+      winkelAbsolut += stab.winkelEigen;
+      x += länge * Math.cos(winkelAbsolut);
+      y += länge * Math.sin(winkelAbsolut);
+      punkte.push({ x: x, y: y });
+    }
+    return punkte;
+  }
+
   function zeichneBild() {
     var größe = breite_höhe_in_css();
     var breite = größe.breite;
@@ -208,23 +374,50 @@
     var mitteX = breite / 2;
     var mitteY = höhe / 2;
 
-    var länge1 = parseFloat(reglerLaenge1.value) * PIXEL_PRO_LAENGE;
-    var länge2 = parseFloat(reglerLaenge2.value) * PIXEL_PRO_LAENGE;
+    // Spuren zuerst, damit die Stäbe gut sichtbar darüber liegen.
+    for (var i = 0; i < staebe.length; i++) {
+      zeichneSpur(staebe[i], mitteX, mitteY);
+    }
 
-    var winkel2Absolut = winkel1 + winkel2;
-
-    var spitze1X = mitteX + länge1 * Math.cos(winkel1);
-    var spitze1Y = mitteY + länge1 * Math.sin(winkel1);
-
-    var spitze2X = spitze1X + länge2 * Math.cos(winkel2Absolut);
-    var spitze2Y = spitze1Y + länge2 * Math.sin(winkel2Absolut);
-
-    zeichneStab(mitteX, mitteY, spitze1X, spitze1Y, "#ff9800");
-    zeichneStab(spitze1X, spitze1Y, spitze2X, spitze2Y, "#2196f3");
+    var kette = ketteBerechnen();
+    for (var j = 0; j < staebe.length; j++) {
+      var von = kette[j];
+      var bis = kette[j + 1];
+      zeichneStab(mitteX + von.x, mitteY + von.y, mitteX + bis.x, mitteY + bis.y, staebe[j].farbe);
+    }
 
     zeichnePunkt(mitteX, mitteY, "#ffffff", 6);
-    zeichnePunkt(spitze1X, spitze1Y, "#ff9800", 7);
-    zeichnePunkt(spitze2X, spitze2Y, "#2196f3", 7);
+    for (var k = 0; k < staebe.length; k++) {
+      var spitze = kette[k + 1];
+      zeichnePunkt(mitteX + spitze.x, mitteY + spitze.y, staebe[k].farbe, 7);
+    }
+  }
+
+  function zeitSchrittAusführen(deltaSekunden) {
+    for (var i = 0; i < staebe.length; i++) {
+      var stab = staebe[i];
+      var tempo = parseFloat(stab.reglerTempo.value);
+      var winkelGeschwindigkeit = (tempo / 100) * MAX_UMDREHUNG_PRO_SEK * Math.PI * 2;
+      stab.winkelEigen += winkelGeschwindigkeit * deltaSekunden;
+    }
+
+    var kette = ketteBerechnen();
+    for (var j = 0; j < staebe.length; j++) {
+      var stab2 = staebe[j];
+      if (stab2.spurAn) {
+        var spitze = kette[j + 1];
+        stab2.punkte.push({ x: spitze.x, y: spitze.y });
+      }
+    }
+  }
+
+  function punkteBegrenzen() {
+    for (var i = 0; i < staebe.length; i++) {
+      var punkte = staebe[i].punkte;
+      if (punkte.length > MAX_PUNKTE_PRO_STAB) {
+        punkte.splice(0, punkte.length - MAX_PUNKTE_PRO_STAB);
+      }
+    }
   }
 
   function schritt(zeitpunkt) {
@@ -232,17 +425,18 @@
       letzterZeitpunkt = zeitpunkt;
     }
     var deltaSekunden = (zeitpunkt - letzterZeitpunkt) / 1000;
+    if (deltaSekunden > MAX_ZEITSPRUNG) {
+      deltaSekunden = MAX_ZEITSPRUNG;
+    }
     letzterZeitpunkt = zeitpunkt;
 
-    if (läuft) {
-      var tempo1 = parseFloat(reglerTempo1.value);
-      var tempo2 = parseFloat(reglerTempo2.value);
-
-      var winkelGeschwindigkeit1 = (tempo1 / 100) * MAX_UMDREHUNG_PRO_SEK * Math.PI * 2;
-      var winkelGeschwindigkeit2 = (tempo2 / 100) * MAX_UMDREHUNG_PRO_SEK * Math.PI * 2;
-
-      winkel1 += winkelGeschwindigkeit1 * deltaSekunden;
-      winkel2 += winkelGeschwindigkeit2 * deltaSekunden;
+    if (läuft && deltaSekunden > 0) {
+      var anzahlSchritte = Math.max(1, Math.ceil(deltaSekunden / MAX_ZEITSCHRITT));
+      var teilSchritt = deltaSekunden / anzahlSchritte;
+      for (var s = 0; s < anzahlSchritte; s++) {
+        zeitSchrittAusführen(teilSchritt);
+      }
+      punkteBegrenzen();
     }
 
     zeichneBild();
@@ -252,6 +446,12 @@
   knopfStartPause.addEventListener("click", function () {
     läuft = !läuft;
     knopfStartPause.textContent = läuft ? "⏸" : "▶";
+  });
+
+  knopfLoeschen.addEventListener("click", function () {
+    for (var i = 0; i < staebe.length; i++) {
+      staebe[i].punkte.length = 0;
+    }
   });
 
   window.addEventListener("resize", passeCanvasAn);
