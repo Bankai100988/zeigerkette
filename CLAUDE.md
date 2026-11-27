@@ -60,4 +60,7 @@ Kommentaren oder Commit-Texten. Das Repository ist öffentlich.
 4. Ideen für später: Fourier-Zeichnen, Zahnrad-Spirograph, Android-App.
 
 ## Stand
-- Schritt 1: Zwei drehende Stäbe (siehe AUFTRAG_01_zwei-staebe.md)
+- Etappe 1 (Grundversion) ist fertig: bis zu 8 Stäbe, Regler für Länge und
+  Tempo, Drehrichtung, Spur pro Stab, Start/Pause, Löschen, Gesamt-Tempo und
+  automatischer Bildausschnitt.
+- Erledigte Aufträge liegen in `Anweisungen/fertig`.

@@ -124,6 +124,18 @@
     width: 100%;
   }
 
+  .richtung-knopf {
+    flex: 0 0 52px;
+    min-height: 48px;
+    font-size: 22px;
+    font-weight: bold;
+    border-radius: 10px;
+    border: 2px solid var(--farbe);
+    background: transparent;
+    color: var(--farbe);
+    cursor: pointer;
+  }
+
   .spur-knopf {
     flex: 0 0 76px;
     min-height: 48px;
@@ -310,6 +322,11 @@
     titel.textContent = "Stab " + id;
     titelZeile.appendChild(titel);
 
+    var richtungKnopf = document.createElement("button");
+    richtungKnopf.className = "richtung-knopf";
+    richtungKnopf.textContent = "↻";
+    titelZeile.appendChild(richtungKnopf);
+
     var spurKnopf = document.createElement("button");
     spurKnopf.className = "spur-knopf";
     spurKnopf.textContent = "Spur";
@@ -355,7 +372,9 @@
       reglerLaenge: reglerLaenge,
       reglerTempo: reglerTempo,
       spurKnopf: spurKnopf,
+      richtungKnopf: richtungKnopf,
       winkelEigen: 0,
+      richtung: 1, // 1 = im Uhrzeigersinn, -1 = dagegen
       spurAn: false,
       punkte: []
     };
@@ -375,6 +394,11 @@
         stab.punkte.push(null);
       }
       spurAnzeigeAktualisieren();
+    });
+
+    richtungKnopf.addEventListener("click", function () {
+      stab.richtung = -stab.richtung;
+      richtungKnopf.textContent = stab.richtung === 1 ? "↻" : "↺";
     });
 
     stab.spurAn = spurStart;
@@ -559,7 +583,7 @@
       var stab = staebe[i];
       var tempo = parseFloat(stab.reglerTempo.value);
       var winkelGeschwindigkeit = (tempo / 100) * MAX_UMDREHUNG_PRO_SEK * Math.PI * 2;
-      stab.winkelEigen += winkelGeschwindigkeit * deltaSekunden;
+      stab.winkelEigen += stab.richtung * winkelGeschwindigkeit * deltaSekunden;
     }
 
     var kette = ketteEchtBerechnen();
