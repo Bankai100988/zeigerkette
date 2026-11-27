@@ -13,6 +13,7 @@
   var BASIS_PIXEL_PRO_LAENGE = 3;   // Länge 1 = 3 Pixel (Standardansicht), Länge 100 = 300 Pixel
   var MAX_UMDREHUNG_PRO_SEK = 15;   // Tempo 100 = 15 Umdrehungen pro Sekunde (bei Gesamt-Tempo 50)
   var MITTE_UMDREHUNG_PRO_SEK = 2;  // Tempo 50 = 2 Umdrehungen pro Sekunde (bei Gesamt-Tempo 50)
+  var GESAMT_TEMPO_START = 25;      // Startwert des Gesamt-Tempos (alle anderen Regler: 50)
   var GESAMT_TEMPO_NORMAL = 50;     // Gesamt-Tempo 50 = normal (x1)
   var GESAMT_TEMPO_MAX_FAKTOR = 50; // Gesamt-Tempo 100 = x50
   var MAX_ZEITSCHRITT = 1 / 240;    // Höchstens so viele Sekunden pro Rechenschritt
@@ -112,6 +113,7 @@
 
   var läuft = true;
   var staebe = [];
+  reglerGesamtTempo.value = String(GESAMT_TEMPO_START);
   var gesamtTempo = gesamtTempoFaktor(parseFloat(reglerGesamtTempo.value)); // 1 = normal
   var gesamtLaenge = 0;      // Summe aller Längen (für den Bildausschnitt)
   var aktuelleSkala = 1;

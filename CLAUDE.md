@@ -36,7 +36,8 @@ Programmierer und lernt GitHub dabei.
 - Kaum Text. Alle Beschriftungen auf Deutsch.
 - Alles wirkt sofort, es gibt keinen „Übernehmen"-Knopf.
 - Nichts kann kaputtgehen: Jede Einstellung ist erlaubt.
-- Alle Regler gehen von 0 bis 100, Startwert 50. Länge 1 = 3 Pixel
+- Alle Regler gehen von 0 bis 100, Startwert 50 (nur das Gesamt-Tempo
+  startet bei 25). Länge 1 = 3 Pixel
   (Standardansicht), Länge ist proportional. Tempo: 0 = Stillstand,
   50 = 2 Umdrehungen pro Sekunde, 100 = 15 Umdrehungen pro Sekunde (dazwischen
   nicht linear, wie in `demos/tempo-demo.html`). Gesamt-Tempo 50 = normal,
