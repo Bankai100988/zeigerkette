@@ -36,9 +36,11 @@ Programmierer und lernt GitHub dabei.
 - Kaum Text. Alle Beschriftungen auf Deutsch.
 - Alles wirkt sofort, es gibt keinen „Übernehmen"-Knopf.
 - Nichts kann kaputtgehen: Jede Einstellung ist erlaubt.
-- Länge ist ein Wert von 0 bis 200, Tempo pro Stab von 0 bis 1000, beide
-  proportional (die Hälfte des Höchstwerts ist halb so viel/schnell).
-  Gesamt-Tempo geht von 0 bis 3000 und wirkt zusätzlich auf alle Stäbe.
+- Alle Regler gehen von 0 bis 100, Startwert 50. Länge 1 = 3 Pixel
+  (Standardansicht), Tempo 100 = 15 Umdrehungen pro Sekunde,
+  Gesamt-Tempo 50 = normal, 100 = ×50. Länge und Tempo sind proportional.
+- Neben jedem Regler steht die Zahl. Eingabe über das eigene Ziffernfeld
+  der App, nie über die Tastatur des Systems.
 - Jeder Stab bekommt automatisch eine eigene Startfarbe und kann seine Farbe
   mit dem Farbwähler (Farbfeld und Helligkeitsregler) ändern. Die Farbe gilt
   für Stab und Spur zusammen.
@@ -65,6 +67,9 @@ Programmierer und lernt GitHub dabei.
   und keine neuen Objekte angelegt.
 - Zeitbudget pro Bild, Wächter und Notbremse bleiben immer eingebaut und
   dürfen nicht abgeschwächt werden.
+- Linien werden in kurzen Pfaden gemalt (nicht ein langer Pfad pro Stab),
+  und pro Bild gilt ein Längenbudget für gemalte Linien. Beides ist für die
+  Grafikkarte nötig und darf nicht „vereinfacht" werden.
 - Jede neue Funktion wird mit gebremstem Prozessor (Chrome, 6-fach) und
   `?fps` geprüft, bevor sie fertig ist.
 

@@ -8,12 +8,16 @@
   // =====================================================================
   // Einstellungen
   // =====================================================================
-  var BASIS_PIXEL_PRO_LAENGE = 1.5; // Länge 100 => 150 Pixel, bei Standard-Skala (1).
-  var MAX_UMDREHUNG_PRO_SEK = 0.5;  // Tempo 100 = eine volle Umdrehung in 2 Sekunden
+  var REGLER_MAX = 100;             // Alle Regler gehen von 0 bis 100 (ganze Zahlen)
+  var REGLER_START = 50;            // Startwert aller Regler
+  var BASIS_PIXEL_PRO_LAENGE = 3;   // Länge 1 = 3 Pixel (Standardansicht), Länge 100 = 300 Pixel
+  var MAX_UMDREHUNG_PRO_SEK = 15;   // Tempo 100 = 15 Umdrehungen pro Sekunde (bei Gesamt-Tempo 50)
+  var GESAMT_TEMPO_NORMAL = 50;     // Gesamt-Tempo 50 = normal (x1)
+  var GESAMT_TEMPO_MAX_FAKTOR = 50; // Gesamt-Tempo 100 = x50
   var MAX_ZEITSCHRITT = 1 / 240;    // Höchstens so viele Sekunden pro Rechenschritt
   var MAX_ZEITSPRUNG = 0.1;         // Mehr Zeit pro Bild wird gekappt (z. B. nach Tab-Wechsel)
   var MAX_SCHRITTE_PRO_BILD = 2000; // Feste Grenze, sonst wird der Einzelschritt größer
-  var MINDEST_BEZUGSLAENGE = 200;   // Bis hierhin sieht die Ansicht aus wie der Standard
+  var MINDEST_BEZUGSLAENGE = 100;   // Bis zu dieser Gesamtlänge gilt die Standardansicht
   var RAND_ANTEIL = 1.05;           // ca. 5 % Rand um die Kette herum
   var SKALA_ZEITKONSTANTE = 0.15;   // Wie schnell die Ansicht weich nachzieht
   var SKALA_EINRASTEN = 0.003;      // So nah am Ziel rastet die Skala ein (0,3 %)
@@ -81,11 +85,11 @@
 
   // Startwerte der ersten zwei Stäbe (bleiben wie bisher).
   var ANFANGS_WERTE = [
-    { laenge: 50, tempo: 20, spur: false },
-    { laenge: 30, tempo: 60, spur: true }
+    { laenge: REGLER_START, tempo: REGLER_START, spur: false },
+    { laenge: REGLER_START, tempo: REGLER_START, spur: true }
   ];
   // Werte für jeden neu hinzugefügten Stab.
-  var NEUER_STAB_WERTE = { laenge: 20, tempo: 80, spur: true };
+  var NEUER_STAB_WERTE = { laenge: REGLER_START, tempo: REGLER_START, spur: true };
 
   var adressTeile = new URLSearchParams(location.search);
   var MESSANZEIGE_AN = adressTeile.has("fps");
@@ -107,7 +111,7 @@
 
   var läuft = true;
   var staebe = [];
-  var gesamtTempo = parseFloat(reglerGesamtTempo.value) / 100; // 1 = normal
+  var gesamtTempo = gesamtTempoFaktor(parseFloat(reglerGesamtTempo.value)); // 1 = normal
   var gesamtLaenge = 0;      // Summe aller Längen (für den Bildausschnitt)
   var aktuelleSkala = 1;
   var buehneBreite = 1;      // CSS-Pixel, nur beim Größenwechsel gelesen
@@ -131,9 +135,44 @@
   // Stäbe und Bedienung
   // =====================================================================
 
+  // Gesamt-Tempo-Kurve (wie in demos/tempo-demo.html, Variante x50):
+  // 0 = Stillstand, sonst Faktor = Höchstfaktor hoch ((Wert - Normal) / Normal).
+  // 50 = x1, 100 = x50, 25 = ca. x0,14. Wird nur bei Änderung berechnet.
+  function gesamtTempoFaktor(wert) {
+    if (wert <= 0) {
+      return 0;
+    }
+    return Math.pow(GESAMT_TEMPO_MAX_FAKTOR, (wert - GESAMT_TEMPO_NORMAL) / GESAMT_TEMPO_NORMAL);
+  }
+
   // Winkelgeschwindigkeit eines Stabs aus Tempo und Richtung (nur bei Änderung).
   function omegaBerechnen(stab) {
-    stab.omega = stab.richtung * (stab.tempo / 100) * MAX_UMDREHUNG_PRO_SEK * Math.PI * 2;
+    stab.omega = stab.richtung * (stab.tempo / REGLER_MAX) * MAX_UMDREHUNG_PRO_SEK * Math.PI * 2;
+  }
+
+  // Verbindet Regler und Zahlenknopf: beide zeigen immer denselben Wert.
+  // "beiAenderung(wert)" wird nach jeder Änderung aufgerufen.
+  function zahlenReglerVerbinden(regler, knopf, titelFunktion, besitzer, beiAenderung) {
+    var r = { regler: regler, knopf: knopf, besitzer: besitzer, wert: 0 };
+    r.setzen = function (v) {
+      v = Math.max(0, Math.min(REGLER_MAX, Math.round(v)));
+      r.wert = v;
+      regler.value = String(v);
+      knopf.textContent = String(v);
+      beiAenderung(v);
+    };
+    regler.min = "0";
+    regler.max = String(REGLER_MAX);
+    regler.step = "1";
+    regler.addEventListener("input", function () {
+      r.setzen(parseFloat(regler.value));
+    });
+    knopf.addEventListener("click", function () {
+      ziffernOeffnen(r, titelFunktion());
+    });
+    r.wert = Math.max(0, Math.min(REGLER_MAX, Math.round(parseFloat(regler.value))));
+    knopf.textContent = String(r.wert);
+    return r;
   }
 
   function gesamtLaengeBerechnen() {
@@ -189,11 +228,14 @@
     var reglerLaenge = document.createElement("input");
     reglerLaenge.type = "range";
     reglerLaenge.min = "0";
-    reglerLaenge.max = "200";
+    reglerLaenge.max = String(REGLER_MAX);
     reglerLaenge.value = String(laengeStart);
     reglerLaenge.id = "laenge-" + id;
+    var zahlLaenge = document.createElement("button");
+    zahlLaenge.className = "zahl-knopf";
     zeileLaenge.appendChild(labelLaenge);
     zeileLaenge.appendChild(reglerLaenge);
+    zeileLaenge.appendChild(zahlLaenge);
     block.appendChild(zeileLaenge);
 
     var zeileTempo = document.createElement("div");
@@ -204,11 +246,14 @@
     var reglerTempo = document.createElement("input");
     reglerTempo.type = "range";
     reglerTempo.min = "0";
-    reglerTempo.max = "1000";
+    reglerTempo.max = String(REGLER_MAX);
     reglerTempo.value = String(tempoStart);
     reglerTempo.id = "tempo-" + id;
+    var zahlTempo = document.createElement("button");
+    zahlTempo.className = "zahl-knopf";
     zeileTempo.appendChild(labelTempo);
     zeileTempo.appendChild(reglerTempo);
+    zeileTempo.appendChild(zahlTempo);
     block.appendChild(zeileTempo);
 
     stabListe.appendChild(block);
@@ -239,14 +284,18 @@
       }
     }
 
-    reglerLaenge.addEventListener("input", function () {
-      stab.laenge = parseFloat(reglerLaenge.value);
+    zahlenReglerVerbinden(reglerLaenge, zahlLaenge, function () {
+      return "Stab " + id + " – Länge";
+    }, stab, function (v) {
+      stab.laenge = v;
       gesamtLaengeBerechnen();
       neuZeichnen = true;
     });
 
-    reglerTempo.addEventListener("input", function () {
-      stab.tempo = parseFloat(reglerTempo.value);
+    zahlenReglerVerbinden(reglerTempo, zahlTempo, function () {
+      return "Stab " + id + " – Tempo";
+    }, stab, function (v) {
+      stab.tempo = v;
       omegaBerechnen(stab);
     });
 
@@ -303,6 +352,9 @@
     if (aktiverFarbStab === stab) {
       farbwahlSchliessen();
     }
+    if (ziffernRegler && ziffernRegler.besitzer === stab) {
+      ziffernSchliessen();
+    }
     stabListe.removeChild(stab.block);
     stab.spur = null; // Speicher freigeben
     gesamtLaengeBerechnen();
@@ -332,8 +384,10 @@
   knopfStabPlus.addEventListener("click", stabHinzufuegen);
   knopfStabMinus.addEventListener("click", stabEntfernen);
 
-  reglerGesamtTempo.addEventListener("input", function () {
-    gesamtTempo = parseFloat(reglerGesamtTempo.value) / 100;
+  zahlenReglerVerbinden(reglerGesamtTempo, document.getElementById("gesamt-tempo-zahl"), function () {
+    return "Gesamt-Tempo";
+  }, null, function (v) {
+    gesamtTempo = gesamtTempoFaktor(v);
   });
 
   // =====================================================================
@@ -485,6 +539,7 @@
   }
 
   function farbwahlOeffnen(stab) {
+    ziffernSchliessen(); // immer nur ein Fenster offen
     aktiverFarbStab = stab;
     farbwahlTitel.textContent = "Farbe – " + stab.titelElement.textContent;
     var hsl = farbeZuHsl(stab.farbe);
@@ -560,6 +615,107 @@
   });
   streifenCanvas.addEventListener("pointerup", function () { ziehtImStreifen = false; });
   streifenCanvas.addEventListener("pointercancel", function () { ziehtImStreifen = false; });
+
+  // =====================================================================
+  // Ziffernfeld (eigene Zifferntasten, nie die Tastatur des Systems)
+  // =====================================================================
+  var ziffernPopup = document.getElementById("ziffernfeld");
+  var ziffernTitel = document.getElementById("ziffernfeld-titel");
+  var ziffernAnzeige = document.getElementById("ziffernfeld-anzeige");
+  var ziffernTasten = document.getElementById("ziffernfeld-tasten");
+  var ziffernRegler = null;   // Welcher Regler gerade eingegeben wird (oder null)
+  var ziffernText = "";       // Eingetippte Ziffern
+  var ziffernErste = true;    // Die nächste Ziffer ersetzt den alten Wert
+  var ZIFFERN_MAX_STELLEN = 3;
+
+  function ziffernAnwenden() {
+    ziffernAnzeige.textContent = ziffernText;
+    ziffernRegler.setzen(ziffernText === "" ? 0 : parseInt(ziffernText, 10));
+  }
+
+  function ziffernOeffnen(regler, titel) {
+    farbwahlSchliessen(); // immer nur ein Fenster offen
+    ziffernRegler = regler;
+    ziffernText = String(regler.wert);
+    ziffernErste = true;
+    ziffernTitel.textContent = titel;
+    ziffernAnzeige.textContent = ziffernText;
+    ziffernPopup.hidden = false;
+  }
+
+  function ziffernSchliessen() {
+    ziffernPopup.hidden = true;
+    ziffernRegler = null;
+  }
+
+  function ziffernTippen(ziffer) {
+    if (!ziffernRegler) {
+      return;
+    }
+    if (ziffernErste) {
+      ziffernText = ziffer;
+      ziffernErste = false;
+    } else if (ziffernText.length < ZIFFERN_MAX_STELLEN) {
+      ziffernText += ziffer;
+    }
+    var zahl = parseInt(ziffernText, 10);
+    if (zahl > REGLER_MAX) {
+      zahl = REGLER_MAX;
+    }
+    ziffernText = String(zahl); // ohne führende Nullen, höchstens 100
+    ziffernAnwenden();
+  }
+
+  function ziffernLoeschen() {
+    if (!ziffernRegler) {
+      return;
+    }
+    ziffernErste = false;
+    ziffernText = ziffernText.slice(0, -1);
+    ziffernAnwenden();
+  }
+
+  ziffernTasten.addEventListener("pointerdown", function (e) {
+    var taste = e.target.closest ? e.target.closest("button") : null;
+    if (!taste) {
+      return;
+    }
+    e.preventDefault(); // kein Markieren, kein Fokus
+    var art = taste.getAttribute("data-taste");
+    if (art === "ok") {
+      ziffernSchliessen();
+    } else if (art === "weg") {
+      ziffernLoeschen();
+    } else {
+      ziffernTippen(art);
+    }
+  });
+
+  document.addEventListener("pointerdown", function (e) {
+    if (ziffernPopup.hidden || ziffernPopup.contains(e.target)) {
+      return;
+    }
+    if (e.target.classList && e.target.classList.contains("zahl-knopf")) {
+      return; // der Knopf öffnet gleich das Feld für seinen Regler
+    }
+    ziffernSchliessen();
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (ziffernPopup.hidden) {
+      return;
+    }
+    if (e.key.length === 1 && e.key >= "0" && e.key <= "9") {
+      e.preventDefault();
+      ziffernTippen(e.key);
+    } else if (e.key === "Backspace") {
+      e.preventDefault();
+      ziffernLoeschen();
+    } else if (e.key === "Enter" || e.key === "Escape") {
+      e.preventDefault();
+      ziffernSchliessen();
+    }
+  });
 
   // =====================================================================
   // Spur-Speicher (Ringpuffer)

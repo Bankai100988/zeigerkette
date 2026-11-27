@@ -6,6 +6,7 @@
 <title>Zeigerketten-Spirograph</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#14141f">
+<link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <style>
   *, *::before, *::after {
@@ -26,7 +27,8 @@
   }
 
   /* Tablet: kein versehentliches Markieren, kein Doppeltipp-Zoom */
-  button, label, .block-titel, .staebe-label, #stab-anzahl, .farbwahl-kopf span {
+  button, label, .block-titel, .staebe-label, #stab-anzahl, .farbwahl-kopf span,
+  #ziffernfeld, #ziffernfeld span {
     -webkit-user-select: none;
     user-select: none;
   }
@@ -59,9 +61,11 @@
   }
 
   #leiste {
-    flex: 0 0 clamp(280px, 28vw, 360px);
-    width: clamp(280px, 28vw, 360px);
-    max-width: clamp(280px, 28vw, 360px);
+    /* Zeichenfläche möglichst quadratisch: Die Leiste bekommt den Rest
+       (Breite minus Höhe), mindestens 340 px, höchstens 480 px. */
+    flex: 0 0 clamp(340px, calc(100vw - 100vh), 480px);
+    width: clamp(340px, calc(100vw - 100vh), 480px);
+    max-width: clamp(340px, calc(100vw - 100vh), 480px);
     min-height: 0;
     background: #1f1f30;
     display: flex;
@@ -172,6 +176,28 @@
     flex: 1 1 auto;
     height: 48px;
     width: 100%;
+    min-width: 0;
+  }
+
+  /* Zahl neben dem Regler: sieht aus wie ein Knopf (ist keine Eingabe) */
+  .zahl-knopf {
+    flex: none;
+    width: 56px;
+    min-height: 48px;
+    padding: 0;
+    font-size: 20px;
+    font-weight: bold;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    color: #fff;
+    background: #1a1a2c;
+    border: 2px solid #5a5a80;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+
+  .zahl-knopf:active {
+    background: #4a4a6a;
   }
 
   .richtung-knopf {
@@ -342,6 +368,74 @@
     display: block;
   }
 
+  /* Ziffernfeld: eigene Zifferntasten über der Zeichenfläche */
+  #ziffernfeld {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    max-width: calc(100% - 32px);
+    max-height: calc(100% - 32px);
+    overflow-y: auto;
+    background: #22223a;
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    z-index: 55;
+    touch-action: manipulation;
+  }
+
+  #ziffernfeld[hidden] {
+    display: none;
+  }
+
+  #ziffernfeld-titel {
+    display: block;
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 8px;
+  }
+
+  #ziffernfeld-anzeige {
+    display: block;
+    min-height: 56px;
+    line-height: 56px;
+    margin-bottom: 10px;
+    padding: 0 14px;
+    text-align: right;
+    font-size: 40px;
+    font-weight: bold;
+    color: #fff;
+    background: #14141f;
+    border-radius: 10px;
+  }
+
+  #ziffernfeld-tasten {
+    display: grid;
+    grid-template-columns: repeat(3, 72px);
+    grid-auto-rows: 64px;
+    gap: 8px;
+  }
+
+  #ziffernfeld-tasten button {
+    font-size: 28px;
+    font-weight: bold;
+    color: #fff;
+    background: #3a3a55;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+
+  #ziffernfeld-tasten button:active {
+    background: #4a4a6a;
+  }
+
+  #ziffernfeld-tasten button[data-taste="ok"] {
+    background: #2e7d32;
+    font-size: 24px;
+  }
+
   /* Notbremse: großes Fenster über der Zeichenfläche */
   #notbremse {
     position: absolute;
@@ -456,6 +550,24 @@
         <canvas id="helligkeit-canvas" width="48" height="200"></canvas>
       </div>
     </div>
+    <div id="ziffernfeld" hidden>
+      <span id="ziffernfeld-titel"></span>
+      <span id="ziffernfeld-anzeige"></span>
+      <div id="ziffernfeld-tasten">
+        <button data-taste="1">1</button>
+        <button data-taste="2">2</button>
+        <button data-taste="3">3</button>
+        <button data-taste="4">4</button>
+        <button data-taste="5">5</button>
+        <button data-taste="6">6</button>
+        <button data-taste="7">7</button>
+        <button data-taste="8">8</button>
+        <button data-taste="9">9</button>
+        <button data-taste="weg">⌫</button>
+        <button data-taste="0">0</button>
+        <button data-taste="ok">OK</button>
+      </div>
+    </div>
     <div id="notbremse" hidden>
       <div class="notbremse-karte">
         <div class="notbremse-symbol">⏸</div>
@@ -470,7 +582,8 @@
     <div id="aktionen">
       <div class="regler-zeile" id="gesamt-tempo-zeile">
         <label for="gesamt-tempo">Gesamt-Tempo</label>
-        <input type="range" id="gesamt-tempo" min="0" max="3000" value="100">
+        <input type="range" id="gesamt-tempo" min="0" max="100" value="50">
+        <button class="zahl-knopf" id="gesamt-tempo-zahl">50</button>
       </div>
       <div class="staebe-zeile">
         <span class="staebe-label">Stäbe</span>
