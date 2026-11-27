@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tempo-Demo</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #14141f; color: #fff;
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+    touch-action: manipulation;
+  }
+  #app { display: flex; height: 100%; width: 100%; }
+  #buehne { flex: 1 1 0; min-width: 0; position: relative; }
+  #zeichnung { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+  #leiste {
+    flex: 0 0 360px; width: 360px; height: 100%;
+    overflow-y: auto; padding: 12px;
+    background: #1f1f30;
+  }
+  h2 { font-size: 15px; font-weight: 600; margin: 12px 0 6px; color: #c8c8e0; }
+  .reihe { display: flex; gap: 8px; }
+  .reihe button.wahl { flex: 0 0 108px; width: 108px; }
+  button {
+    min-height: 52px; font-size: 20px; font-weight: 600;
+    border: 2px solid #4a4a6a; border-radius: 12px;
+    background: #3a3a55; color: #fff; cursor: pointer;
+  }
+  button.aktiv { background: #fff; color: #14141f; border-color: #fff; }
+  .info { font-size: 16px; margin: 10px 0 4px; color: #e0e0f0; min-height: 22px; }
+  .stab { margin: 10px 0; padding: 8px 10px; border: 2px solid var(--farbe); border-radius: 12px; }
+  .stab b { color: var(--farbe); font-size: 17px; }
+  .zeile { display: flex; align-items: center; gap: 8px; }
+  .zeile label { flex: 0 0 64px; width: 64px; font-size: 16px; }
+  .zeile input[type=range] { flex: 1 1 0; min-width: 0; height: 48px; accent-color: var(--farbe, #fff); }
+  .zeile output { flex: 0 0 40px; width: 40px; text-align: right; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .aktionen { display: flex; gap: 8px; margin-top: 12px; }
+  .aktionen button { flex: 0 0 160px; width: 160px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="buehne"><canvas id="zeichnung"></canvas></div>
+  <div id="leiste">
+    <h2>Tempo 100 =</h2>
+    <div class="reihe" id="reiheA">
+      <button class="wahl" data-v="1">A<br><small>1 / s</small></button>
+      <button class="wahl" data-v="2">B<br><small>2 / s</small></button>
+      <button class="wahl" data-v="4">C<br><small>4 / s</small></button>
+    </div>
+    <h2>Gesamt-Tempo 100 =</h2>
+    <div class="reihe" id="reiheB">
+      <button class="wahl" data-m="5">×5</button>
+      <button class="wahl" data-m="20">×20</button>
+      <button class="wahl" data-m="50">×50</button>
+    </div>
+    <div class="info" id="info"></div>
+
+    <div class="stab" style="--farbe:#ff9800"><b>Stab 1</b>
+      <div class="zeile"><label>Länge</label><input type="range" min="0" max="100" value="50" data-s="0" data-t="l"><output></output></div>
+      <div class="zeile"><label>Tempo</label><input type="range" min="0" max="100" value="50" data-s="0" data-t="t"><output></output></div>
+    </div>
+    <div class="stab" style="--farbe:#2196f3"><b>Stab 2</b>
+      <div class="zeile"><label>Länge</label><input type="range" min="0" max="100" value="50" data-s="1" data-t="l"><output></output></div>
+      <div class="zeile"><label>Tempo</label><input type="range" min="0" max="100" value="50" data-s="1" data-t="t"><output></output></div>
+    </div>
+    <div class="stab" style="--farbe:#4caf50"><b>Stab 3</b>
+      <div class="zeile"><label>Länge</label><input type="range" min="0" max="100" value="50" data-s="2" data-t="l"><output></output></div>
+      <div class="zeile"><label>Tempo</label><input type="range" min="0" max="100" value="50" data-s="2" data-t="t"><output></output></div>
+    </div>
+    <div class="stab" style="--farbe:#ffffff"><b>Alle</b>
+      <div class="zeile"><label>Gesamt</label><input type="range" min="0" max="100" value="50" id="gesamt"><output></output></div>
+    </div>
+    <div class="aktionen">
+      <button id="startPause">Pause</button>
+      <button id="loeschen">Löschen</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var FARBEN = ["#ff9800", "#2196f3", "#4caf50"];
+  var PX_PRO_EINHEIT = 3;
+  var ZEITBUDGET_MS = 8;
+  var MAX_WINKEL_SCHRITT = 0.08; // Bogenmaß pro Rechenschritt
+  var ZWEI_PI = Math.PI * 2;
+
+  var canvas = document.getElementById("zeichnung");
+  var ctx = canvas.getContext("2d");
+  var spurEbene = document.createElement("canvas");
+  var sctx = spurEbene.getContext("2d");
+
+  // Zustand (alles vorab angelegt, in der Schleife entstehen keine neuen Objekte)
+  var laenge = [50, 50, 50];
+  var tempo = [50, 50, 50];
+  var gesamt = 50;
+  var umdrehProSek = 2;   // Tempo 100 bei Gesamt-Tempo 50
+  var maxFaktor = 20;     // Gesamt-Tempo 100
+  var laeuft = true;
+  var winkel = [0, 0, 0]; // relative Winkel
+  var rate = [0, 0, 0];   // Umdrehungen pro Sekunde (relativ)
+  var breite = 0, hoehe = 0, dpr = 1;
+  var massstab = PX_PRO_EINHEIT;
+  var mx = 0, my = 0;     // Mittelpunkt
+  var hatLetzten = false, letzterX = 0, letzterY = 0;
+  var letzteZeit = 0;
+
+  function faktor() {
+    if (gesamt === 0) return 0;
+    return Math.pow(maxFaktor, (gesamt - 50) / 50);
+  }
+
+  function ratenBerechnen() {
+    var f = faktor();
+    for (var i = 0; i < 3; i++) rate[i] = umdrehProSek * (tempo[i] / 100) * f;
+  }
+
+  function spurLoeschen() {
+    sctx.setTransform(1, 0, 0, 1, 0, 0);
+    sctx.clearRect(0, 0, spurEbene.width, spurEbene.height);
+    hatLetzten = false;
+  }
+
+  function ansichtBerechnen() {
+    var summe = laenge[0] + laenge[1] + laenge[2];
+    var platz = Math.min(breite, hoehe) / 2 * 0.92;
+    var neu = PX_PRO_EINHEIT;
+    if (summe * PX_PRO_EINHEIT > platz) neu = platz / summe;
+    if (Math.abs(neu - massstab) > 1e-9) {
+      massstab = neu;
+      spurLoeschen(); // Ansicht springt, alte Spur passt nicht mehr
+    }
+  }
+
+  function groesseAnpassen() {
+    var b = canvas.parentNode.clientWidth;
+    var h = canvas.parentNode.clientHeight;
+    dpr = window.devicePixelRatio || 1;
+    breite = b; hoehe = h;
+    canvas.width = Math.max(1, Math.round(b * dpr));
+    canvas.height = Math.max(1, Math.round(h * dpr));
+    spurEbene.width = canvas.width;
+    spurEbene.height = canvas.height;
+    mx = b / 2; my = h / 2;
+    hatLetzten = false;
+    ansichtBerechnen();
+  }
+
+  function spurSchritte(dt) {
+    var start = performance.now();
+    var gesamtRate = (rate[0] + rate[1] + rate[2]) * ZWEI_PI;
+    var n = Math.ceil(gesamtRate * dt / MAX_WINKEL_SCHRITT);
+    if (n < 1) n = 1;
+    var sdt = dt / n;
+    var d0 = rate[0] * ZWEI_PI * sdt;
+    var d1 = rate[1] * ZWEI_PI * sdt;
+    var d2 = rate[2] * ZWEI_PI * sdt;
+    var l0 = laenge[0] * massstab, l1 = laenge[1] * massstab, l2 = laenge[2] * massstab;
+    var w0 = winkel[0], w1 = winkel[1], w2 = winkel[2];
+    var px, py;
+
+    sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    sctx.strokeStyle = FARBEN[2];
+    sctx.lineWidth = 2;
+    sctx.lineCap = "round";
+    sctx.lineJoin = "round";
+
+    var inPfad = 0;
+    sctx.beginPath();
+    if (hatLetzten) sctx.moveTo(letzterX, letzterY);
+    for (var k = 0; k < n; k++) {
+      w0 += d0; w1 += d1; w2 += d2;
+      var a1 = w0, a2 = w0 + w1, a3 = a2 + w2;
+      px = mx + l0 * Math.cos(a1) + l1 * Math.cos(a2) + l2 * Math.cos(a3);
+      py = my + l0 * Math.sin(a1) + l1 * Math.sin(a2) + l2 * Math.sin(a3);
+      if (!hatLetzten) { sctx.moveTo(px, py); hatLetzten = true; }
+      else sctx.lineTo(px, py);
+      letzterX = px; letzterY = py;
+      inPfad++;
+      if (inPfad >= 200) { // kurze Pfade
+        sctx.stroke();
+        sctx.beginPath();
+        sctx.moveTo(px, py);
+        inPfad = 0;
+        if (performance.now() - start > ZEITBUDGET_MS) { k++; break; }
+      }
+    }
+    sctx.stroke();
+    // Winkel nur so weit voranschreiten lassen, wie gerechnet wurde
+    winkel[0] = w0 % ZWEI_PI; winkel[1] = w1 % ZWEI_PI; winkel[2] = w2 % ZWEI_PI;
+  }
+
+  function malen() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#14141f";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(spurEbene, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    var x = mx, y = my, a = 0;
+    for (var i = 0; i < 3; i++) {
+      a += winkel[i];
+      var nx = x + laenge[i] * massstab * Math.cos(a);
+      var ny = y + laenge[i] * massstab * Math.sin(a);
+      ctx.strokeStyle = FARBEN[i];
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(nx, ny);
+      ctx.stroke();
+      x = nx; y = ny;
+    }
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, ZWEI_PI);
+    ctx.fill();
+  }
+
+  function schleife(jetzt) {
+    var dt = (jetzt - letzteZeit) / 1000;
+    letzteZeit = jetzt;
+    if (dt > 0.1) dt = 0.1;
+    if (dt < 0) dt = 0;
+    if (laeuft && dt > 0) spurSchritte(dt);
+    malen();
+    requestAnimationFrame(schleife);
+  }
+
+  // ---- Bedienung (nur bei Eingaben, nicht in der Schleife) ----
+  var info = document.getElementById("info");
+  function infoAktualisieren() {
+    var r = rate[0];
+    info.textContent = "Stab 1 dreht sich " + r.toFixed(1).replace(".", ",") + " mal pro Sekunde";
+  }
+  function alleAnzeigen() {
+    ratenBerechnen();
+    infoAktualisieren();
+  }
+
+  var regler = document.querySelectorAll("input[type=range]");
+  for (var i = 0; i < regler.length; i++) {
+    (function (el) {
+      var out = el.parentNode.querySelector("output");
+      function lesen() {
+        var v = parseInt(el.value, 10);
+        out.textContent = v;
+        if (el.id === "gesamt") gesamt = v;
+        else {
+          var s = parseInt(el.getAttribute("data-s"), 10);
+          if (el.getAttribute("data-t") === "l") { laenge[s] = v; ansichtBerechnen(); }
+          else tempo[s] = v;
+        }
+        alleAnzeigen();
+      }
+      el.addEventListener("input", lesen);
+      lesen();
+    })(regler[i]);
+  }
+
+  function auswahl(reiheId, attr, setzen, start) {
+    var knoepfe = document.getElementById(reiheId).querySelectorAll("button");
+    function markieren(wert) {
+      for (var j = 0; j < knoepfe.length; j++) {
+        knoepfe[j].classList.toggle("aktiv", knoepfe[j].getAttribute(attr) === String(wert));
+      }
+    }
+    for (var j = 0; j < knoepfe.length; j++) {
+      knoepfe[j].addEventListener("click", function () {
+        var w = parseFloat(this.getAttribute(attr));
+        setzen(w);
+        markieren(w);
+        spurLoeschen();
+        alleAnzeigen();
+      });
+    }
+    setzen(start);
+    markieren(start);
+  }
+  auswahl("reiheA", "data-v", function (w) { umdrehProSek = w; }, 2);
+  auswahl("reiheB", "data-m", function (w) { maxFaktor = w; }, 20);
+
+  var knopfSP = document.getElementById("startPause");
+  knopfSP.addEventListener("click", function () {
+    laeuft = !laeuft;
+    knopfSP.textContent = laeuft ? "Pause" : "Start";
+  });
+  document.getElementById("loeschen").addEventListener("click", spurLoeschen);
+
+  window.addEventListener("resize", groesseAnpassen);
+
+  groesseAnpassen();
+  alleAnzeigen();
+  letzteZeit = performance.now();
+  requestAnimationFrame(schleife);
+})();
+</script>
+</body>
+</html>
