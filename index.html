@@ -63,10 +63,16 @@
   #aktionen {
     flex: 0 0 auto;
     display: flex;
+    flex-direction: column;
     gap: 10px;
     padding: 10px;
     box-sizing: border-box;
     border-top: 1px solid #333345;
+  }
+
+  .knopf-zeile {
+    display: flex;
+    gap: 10px;
   }
 
   .block {
@@ -97,6 +103,12 @@
     font-size: 15px;
     width: 58px;
     flex: 0 0 58px;
+  }
+
+  #gesamt-tempo-zeile label {
+    width: auto;
+    flex: 0 0 112px;
+    font-weight: bold;
   }
 
   input[type="range"] {
@@ -163,8 +175,14 @@
   <div id="leiste">
     <div id="stab-liste"></div>
     <div id="aktionen">
-      <button id="start-pause">⏸</button>
-      <button id="loeschen">Löschen</button>
+      <div class="regler-zeile" id="gesamt-tempo-zeile">
+        <label for="gesamt-tempo">Gesamt-Tempo</label>
+        <input type="range" id="gesamt-tempo" min="0" max="200" value="100">
+      </div>
+      <div class="knopf-zeile">
+        <button id="start-pause">⏸</button>
+        <button id="loeschen">Löschen</button>
+      </div>
     </div>
   </div>
 </div>
@@ -174,11 +192,14 @@
   "use strict";
 
   // ---- Grundeinstellungen ----
-  var PIXEL_PRO_LAENGE = 1.5;      // Länge 100 => 150 Pixel. Fester Maßstab.
-  var MAX_UMDREHUNG_PRO_SEK = 0.5; // Tempo 100 = eine volle Umdrehung in 2 Sekunden
-  var MAX_ZEITSCHRITT = 1 / 120;   // Höchstens so viele Sekunden pro Spur-Schritt
-  var MAX_ZEITSPRUNG = 0.25;       // Mehr Zeit pro Bild wird gekappt (z. B. nach Tab-Wechsel)
+  var BASIS_PIXEL_PRO_LAENGE = 1.5; // Länge 100 => 150 Pixel, bei Standard-Skala (1).
+  var MAX_UMDREHUNG_PRO_SEK = 0.5;  // Tempo 100 = eine volle Umdrehung in 2 Sekunden
+  var MAX_ZEITSCHRITT = 1 / 240;    // Höchstens so viele Sekunden pro Spur-Schritt
+  var MAX_ZEITSPRUNG = 0.1;         // Mehr Zeit pro Bild wird gekappt (z. B. nach Tab-Wechsel)
   var MAX_PUNKTE_PRO_STAB = 50000;
+  var MINDEST_BEZUGSLAENGE = 200;   // Bis hierhin sieht die Ansicht aus wie der Standard
+  var RAND_ANTEIL = 1.05;           // ca. 5 % Rand um die Kette herum
+  var SKALA_ZEITKONSTANTE = 0.15;   // Wie schnell die Ansicht weich nachzieht
 
   // ---- Stäbe (aus einer Liste gebaut, nicht einzeln pro Stab) ----
   var STAB_DEFINITIONEN = [
@@ -191,9 +212,11 @@
   var stabListe = document.getElementById("stab-liste");
   var knopfStartPause = document.getElementById("start-pause");
   var knopfLoeschen = document.getElementById("loeschen");
+  var reglerGesamtTempo = document.getElementById("gesamt-tempo");
 
   var läuft = true;
   var letzterZeitpunkt = null;
+  var aktuelleSkala = 1;
 
   // ---- Bedienleiste aus der Liste aufbauen ----
   var staebe = STAB_DEFINITIONEN.map(function (def, index) {
@@ -216,7 +239,7 @@
     var reglerLaenge = document.createElement("input");
     reglerLaenge.type = "range";
     reglerLaenge.min = "0";
-    reglerLaenge.max = "100";
+    reglerLaenge.max = "200";
     reglerLaenge.value = String(def.laengeStart);
     reglerLaenge.id = "laenge-" + id;
     zeileLaenge.appendChild(labelLaenge);
@@ -231,7 +254,7 @@
     var reglerTempo = document.createElement("input");
     reglerTempo.type = "range";
     reglerTempo.min = "0";
-    reglerTempo.max = "100";
+    reglerTempo.max = "200";
     reglerTempo.value = String(def.tempoStart);
     reglerTempo.id = "tempo-" + id;
     zeileTempo.appendChild(labelTempo);
@@ -314,7 +337,7 @@
     ctx.fill();
   }
 
-  function zeichneSpur(stab, mitteX, mitteY) {
+  function zeichneSpur(stab, mitteX, mitteY, faktor) {
     var punkte = stab.punkte;
     if (punkte.length < 2) {
       return;
@@ -331,8 +354,8 @@
         mussSpringen = true;
         continue;
       }
-      var x = mitteX + punkt.x;
-      var y = mitteY + punkt.y;
+      var x = mitteX + punkt.x * faktor;
+      var y = mitteY + punkt.y * faktor;
       if (mussSpringen) {
         ctx.moveTo(x, y);
         mussSpringen = false;
@@ -343,23 +366,42 @@
     ctx.stroke();
   }
 
-  // Berechnet die Kette der Punkte (Drehpunkt, Spitze 1, Spitze 2, ...) relativ
-  // zur Mitte, ausgehend von den aktuellen Winkeln. Wird fürs Zeichnen und beim
-  // Sammeln der Spur-Punkte benutzt.
-  function ketteBerechnen() {
+  // Berechnet die Kette der Punkte (Drehpunkt, Spitze 1, Spitze 2, ...) in
+  // echten Längen-Einheiten (nicht in Pixeln), ausgehend von den aktuellen
+  // Winkeln und Längen-Reglern. Wird fürs Zeichnen (mit Skala) und beim
+  // Sammeln der Spur-Punkte (ohne Skala) benutzt.
+  function ketteEchtBerechnen() {
     var punkte = [{ x: 0, y: 0 }];
     var x = 0;
     var y = 0;
     var winkelAbsolut = 0;
     for (var i = 0; i < staebe.length; i++) {
       var stab = staebe[i];
-      var länge = parseFloat(stab.reglerLaenge.value) * PIXEL_PRO_LAENGE;
+      var länge = parseFloat(stab.reglerLaenge.value);
       winkelAbsolut += stab.winkelEigen;
       x += länge * Math.cos(winkelAbsolut);
       y += länge * Math.sin(winkelAbsolut);
       punkte.push({ x: x, y: y });
     }
     return punkte;
+  }
+
+  // Berechnet, wie klein die Ansicht gerade sein müsste, damit die ganze
+  // Kette (mit etwas Rand) in die Zeichenfläche passt. 1 = Standardgröße,
+  // kleiner als 1 = verkleinert. Nie größer als 1.
+  function zielSkalaBerechnen(breite, höhe) {
+    var gesamtlänge = 0;
+    for (var i = 0; i < staebe.length; i++) {
+      gesamtlänge += parseFloat(staebe[i].reglerLaenge.value);
+    }
+    var bezugslänge = Math.max(gesamtlänge, MINDEST_BEZUGSLAENGE);
+    var benötigterRadius = bezugslänge * BASIS_PIXEL_PRO_LAENGE * RAND_ANTEIL;
+    var verfügbarerRadius = Math.min(breite, höhe) / 2;
+
+    if (benötigterRadius <= 0) {
+      return 1;
+    }
+    return Math.min(1, verfügbarerRadius / benötigterRadius);
   }
 
   function zeichneBild() {
@@ -373,23 +415,28 @@
 
     var mitteX = breite / 2;
     var mitteY = höhe / 2;
+    var faktor = BASIS_PIXEL_PRO_LAENGE * aktuelleSkala;
 
     // Spuren zuerst, damit die Stäbe gut sichtbar darüber liegen.
     for (var i = 0; i < staebe.length; i++) {
-      zeichneSpur(staebe[i], mitteX, mitteY);
+      zeichneSpur(staebe[i], mitteX, mitteY, faktor);
     }
 
-    var kette = ketteBerechnen();
+    var kette = ketteEchtBerechnen();
     for (var j = 0; j < staebe.length; j++) {
       var von = kette[j];
       var bis = kette[j + 1];
-      zeichneStab(mitteX + von.x, mitteY + von.y, mitteX + bis.x, mitteY + bis.y, staebe[j].farbe);
+      zeichneStab(
+        mitteX + von.x * faktor, mitteY + von.y * faktor,
+        mitteX + bis.x * faktor, mitteY + bis.y * faktor,
+        staebe[j].farbe
+      );
     }
 
     zeichnePunkt(mitteX, mitteY, "#ffffff", 6);
     for (var k = 0; k < staebe.length; k++) {
       var spitze = kette[k + 1];
-      zeichnePunkt(mitteX + spitze.x, mitteY + spitze.y, staebe[k].farbe, 7);
+      zeichnePunkt(mitteX + spitze.x * faktor, mitteY + spitze.y * faktor, staebe[k].farbe, 7);
     }
   }
 
@@ -401,7 +448,7 @@
       stab.winkelEigen += winkelGeschwindigkeit * deltaSekunden;
     }
 
-    var kette = ketteBerechnen();
+    var kette = ketteEchtBerechnen();
     for (var j = 0; j < staebe.length; j++) {
       var stab2 = staebe[j];
       if (stab2.spurAn) {
@@ -420,6 +467,15 @@
     }
   }
 
+  function skalaNachziehen(deltaSekunden, breite, höhe) {
+    var zielSkala = zielSkalaBerechnen(breite, höhe);
+    if (deltaSekunden <= 0) {
+      return;
+    }
+    var anteil = 1 - Math.exp(-deltaSekunden / SKALA_ZEITKONSTANTE);
+    aktuelleSkala += (zielSkala - aktuelleSkala) * anteil;
+  }
+
   function schritt(zeitpunkt) {
     if (letzterZeitpunkt === null) {
       letzterZeitpunkt = zeitpunkt;
@@ -430,9 +486,15 @@
     }
     letzterZeitpunkt = zeitpunkt;
 
-    if (läuft && deltaSekunden > 0) {
-      var anzahlSchritte = Math.max(1, Math.ceil(deltaSekunden / MAX_ZEITSCHRITT));
-      var teilSchritt = deltaSekunden / anzahlSchritte;
+    var größe = breite_höhe_in_css();
+    skalaNachziehen(deltaSekunden, größe.breite, größe.höhe);
+
+    var gesamtTempo = parseFloat(reglerGesamtTempo.value) / 100;
+    var bewegungsSekunden = läuft ? deltaSekunden * gesamtTempo : 0;
+
+    if (bewegungsSekunden > 0) {
+      var anzahlSchritte = Math.max(1, Math.ceil(bewegungsSekunden / MAX_ZEITSCHRITT));
+      var teilSchritt = bewegungsSekunden / anzahlSchritte;
       for (var s = 0; s < anzahlSchritte; s++) {
         zeitSchrittAusführen(teilSchritt);
       }
