@@ -27,6 +27,9 @@ Programmierer und lernt GitHub dabei.
   veröffentlicht wird. Kommt eine neue Datei dazu, die das Programm braucht,
   muss sie in der Dateiliste oben in `sw.js` stehen. Ändert sich diese
   Liste, die Versionsnummer des Caches in `sw.js` erhöhen.
+- Veröffentlicht über GitHub Pages (Zweig `main`, Hauptordner) unter
+  `https://bankai100988.github.io/zeigerkette/`. Hochladen und Veröffentlichen
+  nur, wenn der Vater es im Auftrag ausdrücklich sagt.
 
 ## Bedienung (feste Regeln)
 - Große Knöpfe und Regler, die man mit dem Finger trifft (mindestens ca. 48 px).
