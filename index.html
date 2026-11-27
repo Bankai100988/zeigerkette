@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Zeigerketten-Spirograph</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #14141f;
+    font-family: Arial, Helvetica, sans-serif;
+    touch-action: none;
+  }
+
+  #app {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #bühne {
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
+  }
+
+  #zeichenflaeche {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  #bedienleiste {
+    flex: 0 0 auto;
+    background: #1f1f30;
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px;
+    box-sizing: border-box;
+    flex-wrap: wrap;
+  }
+
+  .block {
+    flex: 1 1 260px;
+    background: #272740;
+    border-radius: 14px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    min-width: 220px;
+  }
+
+  .block-titel {
+    color: #fff;
+    font-size: 18px;
+    font-weight: bold;
+    margin: 0 0 2px 0;
+  }
+
+  #block1 .block-titel { color: #ff9800; }
+  #block2 .block-titel { color: #2196f3; }
+
+  .regler-zeile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .regler-zeile label {
+    color: #ddd;
+    font-size: 15px;
+    width: 58px;
+    flex: 0 0 58px;
+  }
+
+  input[type="range"] {
+    flex: 1 1 auto;
+    height: 48px;
+    width: 100%;
+  }
+
+  #start-pause {
+    flex: 0 0 90px;
+    min-width: 90px;
+    font-size: 36px;
+    background: #3a3a55;
+    color: #fff;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+  }
+
+  #start-pause:active {
+    background: #4a4a6a;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="bühne">
+    <canvas id="zeichenflaeche"></canvas>
+  </div>
+  <div id="bedienleiste">
+    <div class="block" id="block1">
+      <p class="block-titel">Stab 1</p>
+      <div class="regler-zeile">
+        <label for="laenge1">Länge</label>
+        <input type="range" id="laenge1" min="0" max="100" value="50">
+      </div>
+      <div class="regler-zeile">
+        <label for="tempo1">Tempo</label>
+        <input type="range" id="tempo1" min="0" max="100" value="20">
+      </div>
+    </div>
+    <div class="block" id="block2">
+      <p class="block-titel">Stab 2</p>
+      <div class="regler-zeile">
+        <label for="laenge2">Länge</label>
+        <input type="range" id="laenge2" min="0" max="100" value="30">
+      </div>
+      <div class="regler-zeile">
+        <label for="tempo2">Tempo</label>
+        <input type="range" id="tempo2" min="0" max="100" value="60">
+      </div>
+    </div>
+    <button id="start-pause">⏸</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- Grundeinstellungen ----
+  var PIXEL_PRO_LAENGE = 1.5;      // Länge 100 => 150 Pixel. Fester Maßstab.
+  var MAX_UMDREHUNG_PRO_SEK = 0.5; // Tempo 100 = eine volle Umdrehung in 2 Sekunden
+
+  var canvas = document.getElementById("zeichenflaeche");
+  var ctx = canvas.getContext("2d");
+
+  var reglerLaenge1 = document.getElementById("laenge1");
+  var reglerTempo1 = document.getElementById("tempo1");
+  var reglerLaenge2 = document.getElementById("laenge2");
+  var reglerTempo2 = document.getElementById("tempo2");
+  var knopfStartPause = document.getElementById("start-pause");
+
+  var winkel1 = 0;
+  var winkel2 = 0;
+  var läuft = true;
+  var letzterZeitpunkt = null;
+
+  function passeCanvasAn() {
+    var bühne = document.getElementById("bühne");
+    var breite = bühne.clientWidth;
+    var höhe = bühne.clientHeight;
+    var pixelVerhältnis = window.devicePixelRatio || 1;
+
+    canvas.width = Math.floor(breite * pixelVerhältnis);
+    canvas.height = Math.floor(höhe * pixelVerhältnis);
+    canvas.style.width = breite + "px";
+    canvas.style.height = höhe + "px";
+
+    ctx.setTransform(pixelVerhältnis, 0, 0, pixelVerhältnis, 0, 0);
+  }
+
+  function breite_höhe_in_css() {
+    var bühne = document.getElementById("bühne");
+    return { breite: bühne.clientWidth, höhe: bühne.clientHeight };
+  }
+
+  function zeichneStab(x1, y1, x2, y2, farbe) {
+    ctx.strokeStyle = farbe;
+    ctx.lineWidth = 8;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function zeichnePunkt(x, y, farbe, radius) {
+    ctx.fillStyle = farbe;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function zeichneBild() {
+    var größe = breite_höhe_in_css();
+    var breite = größe.breite;
+    var höhe = größe.höhe;
+
+    ctx.clearRect(0, 0, breite, höhe);
+    ctx.fillStyle = "#14141f";
+    ctx.fillRect(0, 0, breite, höhe);
+
+    var mitteX = breite / 2;
+    var mitteY = höhe / 2;
+
+    var länge1 = parseFloat(reglerLaenge1.value) * PIXEL_PRO_LAENGE;
+    var länge2 = parseFloat(reglerLaenge2.value) * PIXEL_PRO_LAENGE;
+
+    var winkel2Absolut = winkel1 + winkel2;
+
+    var spitze1X = mitteX + länge1 * Math.cos(winkel1);
+    var spitze1Y = mitteY + länge1 * Math.sin(winkel1);
+
+    var spitze2X = spitze1X + länge2 * Math.cos(winkel2Absolut);
+    var spitze2Y = spitze1Y + länge2 * Math.sin(winkel2Absolut);
+
+    zeichneStab(mitteX, mitteY, spitze1X, spitze1Y, "#ff9800");
+    zeichneStab(spitze1X, spitze1Y, spitze2X, spitze2Y, "#2196f3");
+
+    zeichnePunkt(mitteX, mitteY, "#ffffff", 6);
+    zeichnePunkt(spitze1X, spitze1Y, "#ff9800", 7);
+    zeichnePunkt(spitze2X, spitze2Y, "#2196f3", 7);
+  }
+
+  function schritt(zeitpunkt) {
+    if (letzterZeitpunkt === null) {
+      letzterZeitpunkt = zeitpunkt;
+    }
+    var deltaSekunden = (zeitpunkt - letzterZeitpunkt) / 1000;
+    letzterZeitpunkt = zeitpunkt;
+
+    if (läuft) {
+      var tempo1 = parseFloat(reglerTempo1.value);
+      var tempo2 = parseFloat(reglerTempo2.value);
+
+      var winkelGeschwindigkeit1 = (tempo1 / 100) * MAX_UMDREHUNG_PRO_SEK * Math.PI * 2;
+      var winkelGeschwindigkeit2 = (tempo2 / 100) * MAX_UMDREHUNG_PRO_SEK * Math.PI * 2;
+
+      winkel1 += winkelGeschwindigkeit1 * deltaSekunden;
+      winkel2 += winkelGeschwindigkeit2 * deltaSekunden;
+    }
+
+    zeichneBild();
+    requestAnimationFrame(schritt);
+  }
+
+  knopfStartPause.addEventListener("click", function () {
+    läuft = !läuft;
+    knopfStartPause.textContent = läuft ? "⏸" : "▶";
+  });
+
+  window.addEventListener("resize", passeCanvasAn);
+  window.addEventListener("orientationchange", passeCanvasAn);
+
+  passeCanvasAn();
+  requestAnimationFrame(schritt);
+})();
+</script>
+</body>
+</html>
