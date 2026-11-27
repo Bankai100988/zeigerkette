@@ -122,7 +122,14 @@
 
   function ratenBerechnen() {
     var f = faktor();
-    for (var i = 0; i < 3; i++) rate[i] = umdrehProSek * (tempo[i] / 100) * f;
+    // 0 = Stillstand, 50 = immer 2 pro Sekunde, 100 = gewählter Wert.
+    // Von 50 bis 100 wächst es gleichmäßig im Verhältnis (nicht linear).
+    var verhaeltnis = umdrehProSek / 2;
+    for (var i = 0; i < 3; i++) {
+      var t = tempo[i];
+      var basis = t <= 50 ? 2 * t / 50 : 2 * Math.pow(verhaeltnis, (t - 50) / 50);
+      rate[i] = basis * f;
+    }
   }
 
   function spurLoeschen() {
