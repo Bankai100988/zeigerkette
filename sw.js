@@ -1,7 +1,7 @@
 // Service Worker: sorgt dafür, dass die App auch ohne Internet läuft.
 
 // Versionsnummer erhöhen, wenn sich die Dateiliste unten ändert.
-const CACHE_NAME = "zeigerkette-v3";
+const CACHE_NAME = "zeigerkette-v4";
 
 // Alle Dateien, die das Programm braucht. Neue Dateien hier ergänzen.
 // Alle Pfade relativ, weil die App unter /zeigerkette/ veröffentlicht wird.

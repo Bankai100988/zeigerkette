@@ -67,6 +67,22 @@
   var HAENGER_FENSTER_MS = 10000;
   var WEITER_RUHE_MS = 5000;
 
+  // Muster speichern (Bibliothek) und Bild exportieren
+  var DB_NAME = "zeigerkette";
+  var DB_STORE = "muster";
+  var MUSTER_VERSION = 1;          // Format der gespeicherten Einträge
+  var MAX_MUSTER = 300;            // So viele Einträge passen in die Bibliothek
+  var VORSCHAU_GROESSE = 300;      // Vorschaubild in Pixeln (quadratisch)
+  var VORSCHAU_WARTE_MS = 4000;    // So lange auf einen laufenden Neuaufbau warten
+  var HINWEIS_MS = 1500;           // So lange bleibt ein kurzer Hinweis stehen
+  var EXPORT_GROESSE = 2048;       // Bild-Export: 2048 x 2048 Pixel
+  var EXPORT_RAND = 0.05;          // ca. 5 % Rand
+  var EXPORT_LINIE_CSS_PX = 2;     // Linienbreite wie auf dem Bildschirm (im Verhältnis)
+  var BUDGET_EXPORT_MS = 4;        // Export-Malen zusätzlich pro Bild
+  var BUDGET_LINIE_EXPORT_PX = 40000; // Linienlänge für den Export pro Bild
+  var PRUEFEN_ALLE_PUNKTE = 4096;  // Beim Ausmessen so oft die Uhr prüfen
+  var EXPORT_STREIFEN = 256;       // Hintergrund des Export-Bilds streifenweise füllen (Zeilen)
+
   // Messanzeige und Testmodus
   var ANZEIGE_ABSTAND_MS = 250; // höchstens 4-mal pro Sekunde
   var STRESS_MS = 80;
@@ -298,7 +314,7 @@
       }
     }
 
-    zahlenReglerVerbinden(reglerLaenge, zahlLaenge, function () {
+    stab.laengeRegler = zahlenReglerVerbinden(reglerLaenge, zahlLaenge, function () {
       return "Stab " + id + " – Länge";
     }, stab, function (v) {
       stab.laenge = v;
@@ -306,7 +322,7 @@
       neuZeichnen = true;
     });
 
-    zahlenReglerVerbinden(reglerTempo, zahlTempo, function () {
+    stab.tempoRegler = zahlenReglerVerbinden(reglerTempo, zahlTempo, function () {
       return "Stab " + id + " – Tempo";
     }, stab, function (v) {
       stab.tempo = v;
@@ -322,10 +338,16 @@
       spurAnzeigeAktualisieren();
     });
 
+    function richtungAnzeigeAktualisieren() {
+      richtungKnopf.textContent = stab.richtung === 1 ? "↻" : "↺";
+    }
+    stab.spurAnzeige = spurAnzeigeAktualisieren;
+    stab.richtungAnzeige = richtungAnzeigeAktualisieren;
+
     richtungKnopf.addEventListener("click", function () {
       stab.richtung = -stab.richtung;
       omegaBerechnen(stab);
-      richtungKnopf.textContent = stab.richtung === 1 ? "↻" : "↺";
+      richtungAnzeigeAktualisieren();
     });
 
     farbKnopf.addEventListener("click", function () {
@@ -398,7 +420,7 @@
   knopfStabPlus.addEventListener("click", stabHinzufuegen);
   knopfStabMinus.addEventListener("click", stabEntfernen);
 
-  zahlenReglerVerbinden(reglerGesamtTempo, document.getElementById("gesamt-tempo-zahl"), function () {
+  var gesamtTempoRegler = zahlenReglerVerbinden(reglerGesamtTempo, document.getElementById("gesamt-tempo-zahl"), function () {
     return "Gesamt-Tempo";
   }, null, function (v) {
     gesamtTempo = gesamtTempoFaktor(v);
@@ -554,6 +576,7 @@
 
   function farbwahlOeffnen(stab) {
     ziffernSchliessen(); // immer nur ein Fenster offen
+    bibliothekSchliessen();
     aktiverFarbStab = stab;
     farbwahlTitel.textContent = "Farbe – " + stab.titelElement.textContent;
     var hsl = farbeZuHsl(stab.farbe);
@@ -649,6 +672,7 @@
 
   function ziffernOeffnen(regler, titel) {
     farbwahlSchliessen(); // immer nur ein Fenster offen
+    bibliothekSchliessen();
     ziffernRegler = regler;
     ziffernText = String(regler.wert);
     ziffernErste = true;
@@ -1273,6 +1297,9 @@
   }
 
   function notbremseZiehen() {
+    farbwahlSchliessen(); // immer nur ein Fenster offen
+    ziffernSchliessen();
+    bibliothekSchliessen();
     notbremseAktiv = true;
     notbremseFenster.hidden = false;
   }
@@ -1371,6 +1398,653 @@
   }
 
   // =====================================================================
+  // Muster speichern, Bibliothek "Meine Muster", Bild exportieren
+  // =====================================================================
+  // Alles bleibt auf dem Gerät: Gespeichert wird nur in der IndexedDB des
+  // Browsers. Nichts wird hochgeladen oder ins Internet geschickt.
+  var knopfSpeichern = document.getElementById("speichern");
+  var knopfMuster = document.getElementById("muster");
+  var knopfBild = document.getElementById("bild-export");
+  var bildKnopfWort = knopfBild.querySelector(".wort");
+  var bibliothekFenster = document.getElementById("bibliothek");
+  var bibliothekInhalt = document.getElementById("bib-inhalt");
+  var bibliothekSchliessenKnopf = document.getElementById("bib-schliessen");
+  var hinweisElement = document.getElementById("hinweis");
+
+  var dbPromise = null;
+  var speichernLaeuft = false;
+  var persistVersucht = false;
+  var hinweisTimer = 0;
+
+  function zweiStellig(n) {
+    return n < 10 ? "0" + n : String(n);
+  }
+
+  // Kurzer Hinweis, z. B. "✓ Gespeichert".
+  function hinweisZeigen(text) {
+    hinweisElement.textContent = text;
+    hinweisElement.hidden = false;
+    clearTimeout(hinweisTimer);
+    hinweisTimer = setTimeout(function () {
+      hinweisElement.hidden = true;
+    }, HINWEIS_MS);
+  }
+
+  // ---- Lokaler Speicher (IndexedDB) ----
+  function dbOeffnen() {
+    if (!dbPromise) {
+      dbPromise = new Promise(function (ok, fehler) {
+        try {
+          var anfrage = indexedDB.open(DB_NAME, 1);
+          anfrage.onupgradeneeded = function () {
+            anfrage.result.createObjectStore(DB_STORE, { keyPath: "id", autoIncrement: true });
+          };
+          anfrage.onsuccess = function () { ok(anfrage.result); };
+          anfrage.onerror = function () { fehler(anfrage.error); };
+          anfrage.onblocked = function () { fehler(new Error("blockiert")); };
+        } catch (e) {
+          fehler(e); // keine IndexedDB: Speichern und Muster bleiben grau
+        }
+      });
+    }
+    return dbPromise;
+  }
+
+  // Führt "aktion(store)" in einer Transaktion aus und liefert das Ergebnis
+  // der Anfrage, sobald die Transaktion fertig ist.
+  function dbMachen(modus, aktion) {
+    return dbOeffnen().then(function (db) {
+      return new Promise(function (ok, fehler) {
+        var tx = db.transaction(DB_STORE, modus);
+        var anfrage = aktion(tx.objectStore(DB_STORE));
+        tx.oncomplete = function () { ok(anfrage ? anfrage.result : undefined); };
+        tx.onerror = function () { fehler(tx.error); };
+        tx.onabort = function () { fehler(tx.error); };
+      });
+    });
+  }
+
+  dbOeffnen().then(function () {
+    knopfSpeichern.disabled = false;
+    knopfMuster.disabled = false;
+  }).catch(function () { /* bleibt grau, das Programm läuft normal weiter */ });
+
+  // ---- Einstellungen sammeln und prüfen ----
+  function einstellungenSammeln() {
+    var liste = [];
+    for (var i = 0; i < staebe.length; i++) {
+      var s = staebe[i];
+      liste.push({
+        laenge: s.laenge,
+        tempo: s.tempo,
+        richtung: s.richtung,
+        farbe: s.farbe,
+        spur: s.spurAn
+      });
+    }
+    return { gesamtTempo: gesamtTempoRegler.wert, staebe: liste };
+  }
+
+  var FARBE_HEX = /^#[0-9a-fA-F]{6}$/;
+  var FARBE_HSL = /^hsl\(\d{1,3}(\.\d+)?,\d{1,3}(\.\d+)?%,\d{1,3}(\.\d+)?%\)$/;
+
+  // Zahl auf 0 bis 100 begrenzen. Keine Zahl: Startwert.
+  function zahlPruefen(v, standard) {
+    if (typeof v !== "number" || !isFinite(v)) {
+      return standard;
+    }
+    return Math.max(0, Math.min(REGLER_MAX, Math.round(v)));
+  }
+
+  // Macht aus beliebigen gespeicherten Daten gültige Einstellungen.
+  // Ungültiges wird durch Startwerte ersetzt, nichts davon kann etwas kaputt machen.
+  function einstellungenPruefen(roh) {
+    var quelle = roh && typeof roh === "object" ? roh : {};
+    var ergebnis = {
+      gesamtTempo: zahlPruefen(quelle.gesamtTempo, GESAMT_TEMPO_START),
+      staebe: []
+    };
+    var liste = Array.isArray(quelle.staebe) ? quelle.staebe : [];
+    var anzahl = Math.min(liste.length, MAX_STAEBE);
+    if (anzahl < MIN_STAEBE) {
+      anzahl = ANFANGS_WERTE.length;
+      liste = [];
+    }
+    for (var i = 0; i < anzahl; i++) {
+      var w = liste[i] && typeof liste[i] === "object" ? liste[i] : {};
+      var standardSpur = i < ANFANGS_WERTE.length ? ANFANGS_WERTE[i].spur : NEUER_STAB_WERTE.spur;
+      var farbe = FARBEN[i % FARBEN.length];
+      if (typeof w.farbe === "string" && (FARBE_HEX.test(w.farbe) || FARBE_HSL.test(w.farbe))) {
+        farbe = w.farbe;
+      }
+      ergebnis.staebe.push({
+        laenge: zahlPruefen(w.laenge, REGLER_START),
+        tempo: zahlPruefen(w.tempo, REGLER_START),
+        richtung: w.richtung === -1 ? -1 : 1,
+        farbe: farbe,
+        spur: typeof w.spur === "boolean" ? w.spur : standardSpur
+      });
+    }
+    return ergebnis;
+  }
+
+  // ---- Laden: alles setzen, Startstellung, Spuren löschen, von vorn ----
+  function musterLaden(roh) {
+    var e;
+    try {
+      e = einstellungenPruefen(roh);
+    } catch (fehler) {
+      e = einstellungenPruefen(null);
+    }
+    bibliothekSchliessen();
+
+    while (staebe.length > e.staebe.length) {
+      stabEntfernen();
+    }
+    while (staebe.length < e.staebe.length) {
+      stabHinzufuegen();
+    }
+    for (var i = 0; i < staebe.length; i++) {
+      var s = staebe[i];
+      var w = e.staebe[i];
+      s.laengeRegler.setzen(w.laenge);
+      s.tempoRegler.setzen(w.tempo);
+      s.richtung = w.richtung;
+      omegaBerechnen(s);
+      s.richtungAnzeige();
+      farbeAnwenden(s, w.farbe);
+      s.spurAn = w.spur;
+      s.spurAnzeige();
+      s.winkelEigen = 0; // Startstellung
+    }
+    gesamtTempoRegler.setzen(e.gesamtTempo);
+    gesamtLaengeBerechnen();
+    stabKnoepfeAktualisieren();
+    stabListe.scrollTop = 0;
+
+    // Spuren löschen und Bildausschnitt zurücksetzen
+    spurenLoeschen();
+    if (aufbau) {
+      ersatzEbene = aufbau; // laufender Neuaufbau wird verworfen
+      aufbau = null;
+    }
+    aktuelleSkala = zielSkalaBerechnen();
+    ebeneVorbereiten(ebene);
+    aufbauWunsch = false;
+    farbAufbauWartet = false;
+
+    läuft = true;
+    knopfStartPause.textContent = "⏸";
+    neuZeichnen = true;
+  }
+
+  // ---- Speichern ----
+  // Wartet (höchstens kurz), bis kein Neuaufbau der Spur-Ebene mehr läuft.
+  function aufbauAbwarten() {
+    var ende = performance.now() + VORSCHAU_WARTE_MS;
+    return new Promise(function (ok) {
+      (function pruefen() {
+        if ((!aufbau && !aufbauWunsch) || performance.now() >= ende) {
+          ok();
+        } else {
+          setTimeout(pruefen, 30);
+        }
+      })();
+    });
+  }
+
+  // Vorschaubild: verkleinerter quadratischer Ausschnitt um die Mitte der
+  // Spur-Ebene (nur Spuren, keine Stäbe), dunkler Hintergrund.
+  function vorschauErzeugen() {
+    return new Promise(function (ok, fehler) {
+      var c = document.createElement("canvas");
+      c.width = VORSCHAU_GROESSE;
+      c.height = VORSCHAU_GROESSE;
+      var x = c.getContext("2d");
+      x.fillStyle = HINTERGRUND;
+      x.fillRect(0, 0, VORSCHAU_GROESSE, VORSCHAU_GROESSE);
+      var seite = Math.max(1, Math.min(ebene.pw, ebene.ph));
+      var sx = Math.max(0, Math.min(ebene.pw - seite, Math.round(ebene.mx - seite / 2)));
+      var sy = Math.max(0, Math.min(ebene.ph - seite, Math.round(ebene.my - seite / 2)));
+      x.imageSmoothingQuality = "high";
+      x.drawImage(ebene.canvas, sx, sy, seite, seite, 0, 0, VORSCHAU_GROESSE, VORSCHAU_GROESSE);
+      c.toBlob(function (blob) {
+        c.width = 0;
+        if (blob) {
+          ok(blob);
+        } else {
+          fehler(new Error("kein Bild"));
+        }
+      }, "image/png");
+    });
+  }
+
+  function speichern() {
+    if (speichernLaeuft || knopfSpeichern.disabled) {
+      return;
+    }
+    speichernLaeuft = true;
+    if (!persistVersucht) {
+      persistVersucht = true; // einmal anfragen, Ergebnis ist egal
+      try {
+        if (navigator.storage && navigator.storage.persist) {
+          navigator.storage.persist().catch(function () {});
+        }
+      } catch (e) { /* egal */ }
+    }
+    var einstellungen = null;
+    dbMachen("readonly", function (store) { return store.count(); }).then(function (anzahl) {
+      if (anzahl >= MAX_MUSTER) {
+        hinweisZeigen("📚 Bibliothek voll");
+        return null;
+      }
+      return aufbauAbwarten().then(function () {
+        einstellungen = einstellungenSammeln();
+        return vorschauErzeugen();
+      }).then(function (blob) {
+        var eintrag = {
+          version: MUSTER_VERSION,
+          datum: Date.now(),
+          einstellungen: einstellungen,
+          vorschau: blob
+        };
+        return dbMachen("readwrite", function (store) { return store.add(eintrag); });
+      }).then(function () {
+        hinweisZeigen("✓ Gespeichert");
+      });
+    }).catch(function () {
+      hinweisZeigen("⚠ Nicht gespeichert");
+    }).then(function () {
+      speichernLaeuft = false;
+      if (!bibliothekFenster.hidden) {
+        bibliothekFuellen(); // Liste auffrischen, falls sie offen ist
+      }
+    });
+  }
+
+  // ---- Bibliothek ----
+  var bibliothekUrls = [];  // Objekt-URLs der Vorschaubilder (beim Schließen freigeben)
+  var bibliothekNr = 0;     // zählt Öffnen/Auffrischen: späte Antworten werden ignoriert
+
+  function bibliothekUrlsFreigeben() {
+    for (var i = 0; i < bibliothekUrls.length; i++) {
+      URL.revokeObjectURL(bibliothekUrls[i]);
+    }
+    bibliothekUrls.length = 0;
+  }
+
+  function bibliothekSchliessen() {
+    if (bibliothekFenster.hidden) {
+      return;
+    }
+    bibliothekFenster.hidden = true;
+    bibliothekNr++;
+    bibliothekInhalt.textContent = "";
+    bibliothekUrlsFreigeben();
+  }
+
+  function bibliothekOeffnen() {
+    if (knopfMuster.disabled || notbremseAktiv) {
+      return;
+    }
+    farbwahlSchliessen(); // immer nur ein Fenster offen
+    ziffernSchliessen();
+    bibliothekFenster.hidden = false;
+    bibliothekFuellen();
+  }
+
+  function leerAnzeigeZeigen() {
+    var leer = document.createElement("div");
+    leer.id = "bib-leer";
+    var symbol = document.createElement("span");
+    symbol.className = "gross";
+    symbol.textContent = "📚";
+    var text = document.createElement("span");
+    text.className = "text";
+    text.textContent = "Noch keine Muster";
+    leer.appendChild(symbol);
+    leer.appendChild(text);
+    bibliothekInhalt.appendChild(leer);
+  }
+
+  function datumText(ms) {
+    var d = new Date(ms);
+    if (typeof ms !== "number" || isNaN(d.getTime())) {
+      return "–";
+    }
+    return zweiStellig(d.getDate()) + "." + zweiStellig(d.getMonth() + 1) + ". " +
+      zweiStellig(d.getHours()) + ":" + zweiStellig(d.getMinutes());
+  }
+
+  function loeschFrageZeigen(kachel, eintrag) {
+    if (kachel.querySelector(".kachel-frage")) {
+      return;
+    }
+    var frage = document.createElement("div");
+    frage.className = "kachel-frage";
+    frage.addEventListener("click", function (e) { e.stopPropagation(); });
+    var text = document.createElement("span");
+    text.className = "text";
+    text.textContent = "Wirklich löschen?";
+    var tasten = document.createElement("div");
+    tasten.className = "tasten";
+    var ja = document.createElement("button");
+    ja.className = "ja";
+    ja.textContent = "Ja";
+    var nein = document.createElement("button");
+    nein.textContent = "Nein";
+    tasten.appendChild(ja);
+    tasten.appendChild(nein);
+    frage.appendChild(text);
+    frage.appendChild(tasten);
+    kachel.appendChild(frage);
+
+    nein.addEventListener("click", function () {
+      kachel.removeChild(frage);
+    });
+    ja.addEventListener("click", function () {
+      dbMachen("readwrite", function (store) { return store.delete(eintrag.id); }).then(function () {
+        if (kachel.parentNode) {
+          kachel.parentNode.removeChild(kachel);
+        }
+        if (!bibliothekInhalt.querySelector(".kachel")) {
+          leerAnzeigeZeigen();
+        }
+      }).catch(function () {
+        if (frage.parentNode) {
+          kachel.removeChild(frage);
+        }
+        hinweisZeigen("⚠ Nicht gelöscht");
+      });
+    });
+  }
+
+  function kachelErzeugen(eintrag) {
+    var kachel = document.createElement("div");
+    kachel.className = "kachel";
+    var bild = document.createElement("img");
+    bild.alt = "";
+    bild.draggable = false;
+    bild.decoding = "async";
+    try {
+      var url = URL.createObjectURL(eintrag.vorschau);
+      bibliothekUrls.push(url);
+      bild.src = url;
+    } catch (e) { /* kaputtes Vorschaubild: Kachel bleibt dunkel, Laden geht trotzdem */ }
+    var datum = document.createElement("div");
+    datum.className = "kachel-datum";
+    datum.textContent = datumText(eintrag.datum);
+    var weg = document.createElement("button");
+    weg.className = "kachel-loeschen";
+    weg.textContent = "✕";
+    kachel.appendChild(bild);
+    kachel.appendChild(datum);
+    kachel.appendChild(weg);
+
+    kachel.addEventListener("click", function () {
+      musterLaden(eintrag.einstellungen);
+    });
+    weg.addEventListener("click", function (e) {
+      e.stopPropagation();
+      loeschFrageZeigen(kachel, eintrag);
+    });
+    return kachel;
+  }
+
+  function bibliothekFuellen() {
+    var nr = ++bibliothekNr;
+    dbMachen("readonly", function (store) { return store.getAll(); }).then(function (liste) {
+      if (nr !== bibliothekNr || bibliothekFenster.hidden) {
+        return;
+      }
+      bibliothekInhalt.textContent = "";
+      bibliothekUrlsFreigeben();
+      if (!liste || liste.length === 0) {
+        leerAnzeigeZeigen();
+        return;
+      }
+      liste.sort(function (a, b) { return b.id - a.id; }); // neueste zuerst
+      var teile = document.createDocumentFragment();
+      for (var i = 0; i < liste.length; i++) {
+        if (liste[i] && typeof liste[i] === "object") {
+          teile.appendChild(kachelErzeugen(liste[i]));
+        }
+      }
+      bibliothekInhalt.appendChild(teile);
+    }).catch(function () {
+      if (nr === bibliothekNr && !bibliothekFenster.hidden) {
+        bibliothekInhalt.textContent = "";
+        leerAnzeigeZeigen();
+      }
+    });
+  }
+
+  // ---- Bild exportieren ----
+  // Die Spurpunkte werden zu Beginn kopiert. Dann wird in mehreren Bildern
+  // erst ausgemessen, dann in kurzen Pfaden auf ein 2048 x 2048 Bild gemalt
+  // (mit Zeitbudget und Längenbudget pro Bild). Stäbe kommen nicht aufs Bild.
+  var exportZustand = null;
+  var exGrenzen = new Float64Array(4); // kleinstes x, größtes x, kleinstes y, größtes y
+  var bildKnopfBereit = false;
+
+  function bildKnopfPruefen() {
+    var hat = punkteGesamt() >= 2;
+    if (hat !== bildKnopfBereit) {
+      bildKnopfBereit = hat;
+      knopfBild.disabled = !hat;
+    }
+  }
+
+  function exportBeenden() {
+    var z = exportZustand;
+    exportZustand = null;
+    if (z && z.canvas) {
+      z.canvas.width = 0; // Speicher freigeben
+    }
+    bildKnopfWort.textContent = "Bild";
+  }
+
+  function bildHerunterladen(blob) {
+    var d = new Date();
+    var name = "zeigerkette-" + d.getFullYear() + "-" + zweiStellig(d.getMonth() + 1) + "-" +
+      zweiStellig(d.getDate()) + "-" + zweiStellig(d.getHours()) + "-" + zweiStellig(d.getMinutes()) + ".png";
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+  }
+
+  function exportStarten() {
+    if (exportZustand || !bildKnopfBereit || notbremseAktiv) {
+      return; // läuft schon: zweiter Tipp wird ignoriert
+    }
+    var liste = [];
+    var gesamt = 0;
+    for (var i = 0; i < staebe.length; i++) {
+      var sp = staebe[i].spur;
+      var n = sp.geschrieben - sp.aeltester;
+      if (n < 2) {
+        continue;
+      }
+      // Kopie der Punkte in der richtigen Reihenfolge (älteste zuerst).
+      var kopie = new Float32Array(n * 2);
+      var von = (sp.aeltester % sp.kap) * 2;
+      var bisEnde = sp.kap * 2 - von;
+      if (n * 2 <= bisEnde) {
+        kopie.set(sp.daten.subarray(von, von + n * 2), 0);
+      } else {
+        kopie.set(sp.daten.subarray(von, sp.kap * 2), 0);
+        kopie.set(sp.daten.subarray(0, n * 2 - bisEnde), bisEnde);
+      }
+      // Sieht aus wie ein Spur-Speicher, damit streckeMalen es benutzen kann.
+      liste.push({
+        daten: kopie, kap: n, aeltester: 0, geschrieben: n,
+        farbe: staebe[i].farbe, naechstes: 1
+      });
+      gesamt += n - 1;
+    }
+    if (liste.length === 0) {
+      return;
+    }
+    exGrenzen[0] = Infinity;
+    exGrenzen[1] = -Infinity;
+    exGrenzen[2] = Infinity;
+    exGrenzen[3] = -Infinity;
+    exportZustand = {
+      stabs: liste, phase: 0, stabNr: 0, pos: 0,
+      gesamt: gesamt, gemalt: 0, prozent: -1, ebene: null, canvas: null
+    };
+    bildKnopfWort.textContent = "0 %";
+  }
+
+  // Bild-Fläche anlegen und Maßstab festlegen (einmal, nach dem Ausmessen).
+  function exportVorbereiten(z) {
+    var c = document.createElement("canvas");
+    c.width = EXPORT_GROESSE;
+    c.height = EXPORT_GROESSE;
+    var x = c.getContext("2d");
+    x.fillStyle = HINTERGRUND;
+    x.lineCap = "round";
+    x.lineJoin = "round";
+    // Linienbreite im gleichen Verhältnis zum Bild wie auf dem Bildschirm.
+    var seite = Math.max(1, Math.min(buehneBreite, buehneHoehe));
+    x.lineWidth = EXPORT_LINIE_CSS_PX * EXPORT_GROESSE / seite;
+    var ausdehnung = Math.max(exGrenzen[1] - exGrenzen[0], exGrenzen[3] - exGrenzen[2]);
+    if (!(ausdehnung > 0)) {
+      ausdehnung = 1;
+    }
+    var f = EXPORT_GROESSE * (1 - 2 * EXPORT_RAND) / ausdehnung;
+    z.canvas = c;
+    z.fuellY = 0; // Hintergrund wird danach streifenweise gefüllt
+    z.ebene = {
+      ctx: x,
+      faktor: f,
+      mx: EXPORT_GROESSE / 2 - (exGrenzen[0] + exGrenzen[1]) / 2 * f,
+      my: EXPORT_GROESSE / 2 - (exGrenzen[2] + exGrenzen[3]) / 2 * f
+    };
+  }
+
+  // Das Umwandeln in PNG hält das Programm einmal kurz an (die Grafikkarte
+  // muss erst alles fertig malen). Das Kodieren selbst läuft im Hintergrund.
+  function exportFertigstellen(z) {
+    z.phase = 3;
+    bildKnopfWort.textContent = "…";
+    z.canvas.toBlob(function (blob) {
+      var ok = false;
+      if (blob) {
+        try {
+          bildHerunterladen(blob);
+          ok = true;
+        } catch (e) { /* Hinweis unten */ }
+      }
+      exportBeenden();
+      hinweisZeigen(ok ? "✓ Bild gespeichert" : "⚠ Bild nicht gespeichert");
+    }, "image/png");
+  }
+
+  // Ein Stück Arbeit pro Bild, bis die Frist abläuft.
+  function exportArbeiten(z, frist) {
+    var x;
+    var y;
+    if (z.phase === 0) {
+      // Ausmessen: alle Spurpunkte (Lücken sind NaN und zählen nicht).
+      var zaehler = 0;
+      while (z.stabNr < z.stabs.length) {
+        var s = z.stabs[z.stabNr];
+        var d = s.daten;
+        var ende = s.kap * 2;
+        var p = z.pos;
+        while (p < ende) {
+          x = d[p];
+          if (x === x) {
+            y = d[p + 1];
+            if (x < exGrenzen[0]) { exGrenzen[0] = x; }
+            if (x > exGrenzen[1]) { exGrenzen[1] = x; }
+            if (y < exGrenzen[2]) { exGrenzen[2] = y; }
+            if (y > exGrenzen[3]) { exGrenzen[3] = y; }
+          }
+          p += 2;
+          zaehler++;
+          if (zaehler % PRUEFEN_ALLE_PUNKTE === 0 && performance.now() >= frist) {
+            z.pos = p;
+            return;
+          }
+        }
+        z.stabNr++;
+        z.pos = 0;
+      }
+      if (!(exGrenzen[0] <= exGrenzen[1])) {
+        exportBeenden(); // keine echten Punkte: nichts zu malen
+        return;
+      }
+      exportVorbereiten(z);
+      z.phase = 1;
+      z.stabNr = 0;
+      return; // Füllen beginnt im nächsten Bild
+    }
+
+    if (z.phase === 1) {
+      // Hintergrund streifenweise füllen, mindestens ein Streifen pro Bild.
+      while (z.fuellY < EXPORT_GROESSE) {
+        z.ebene.ctx.fillRect(0, z.fuellY, EXPORT_GROESSE, EXPORT_STREIFEN);
+        z.fuellY += EXPORT_STREIFEN;
+        if (performance.now() >= frist) {
+          return;
+        }
+      }
+      z.phase = 2;
+      return;
+    }
+
+    if (z.phase === 2) {
+      var linie = 0;
+      while (z.stabNr < z.stabs.length) {
+        var st = z.stabs[z.stabNr];
+        if (st.naechstes >= st.geschrieben) {
+          z.stabNr++;
+          continue;
+        }
+        if (performance.now() >= frist || linie >= BUDGET_LINIE_EXPORT_PX) {
+          return; // im nächsten Bild weiter
+        }
+        var bis = Math.min(st.naechstes + AUFBAU_PAKET, st.geschrieben);
+        var vor = linienPxImBild; // der Zähler der Hauptschleife bleibt unberührt
+        streckeMalen(z.ebene, st, st.farbe, st.naechstes, bis);
+        linie += linienPxImBild - vor;
+        linienPxImBild = vor;
+        z.gemalt += bis - st.naechstes;
+        st.naechstes = bis;
+      }
+      exportFertigstellen(z);
+    }
+  }
+
+  function exportSchritt(frist) {
+    var z = exportZustand;
+    if (!z || z.phase > 2) {
+      return;
+    }
+    exportArbeiten(z, frist);
+    if (exportZustand === z && z.phase === 2) {
+      var prozent = Math.floor(100 * z.gemalt / z.gesamt);
+      if (prozent !== z.prozent) {
+        z.prozent = prozent;
+        bildKnopfWort.textContent = prozent + " %";
+      }
+    }
+  }
+
+  knopfSpeichern.addEventListener("click", speichern);
+  knopfMuster.addEventListener("click", bibliothekOeffnen);
+  knopfBild.addEventListener("click", exportStarten);
+  bibliothekSchliessenKnopf.addEventListener("click", bibliothekSchliessen);
+
+  // =====================================================================
   // Messanzeige (nur mit ?fps in der Adresse)
   // =====================================================================
   var messAnzeige = null;
@@ -1380,7 +2054,7 @@
   var anzeigeGroessterAbstand = 0;
   var anzeigeGroessteArbeit = 0;
   var anzeigeGroessteLinie = 0;
-  var teilZeiten = new Float64Array(4); // Rechnen+Malen, Rest-Malen, Neuaufbau, Bild (je größter Wert)
+  var teilZeiten = new Float64Array(5); // Rechnen+Malen, Rest-Malen, Neuaufbau, Bild, Export (je größter Wert)
 
   function teilZeitMerken(nr, ms) {
     if (ms > teilZeiten[nr]) {
@@ -1419,7 +2093,8 @@
       " | max Abstand " + Math.round(anzeigeGroessterAbstand) + " ms" +
       " | max Arbeit " + anzeigeGroessteArbeit.toFixed(1) + " ms" +
       " (R " + teilZeiten[0].toFixed(1) + " M " + teilZeiten[1].toFixed(1) +
-      " A " + teilZeiten[2].toFixed(1) + " B " + teilZeiten[3].toFixed(1) + ")" +
+      " A " + teilZeiten[2].toFixed(1) + " B " + teilZeiten[3].toFixed(1) +
+      (exportZustand || teilZeiten[4] > 0 ? " E " + teilZeiten[4].toFixed(1) : "") + ")" +
       " | Linie " + Math.round(anzeigeGroessteLinie / 1000) + "k px" +
       (aufbau ? " | Neuaufbau" : "") +
       (notbremseAktiv ? " | NOTBREMSE" : "");
@@ -1485,6 +2160,13 @@
     }
     var t3 = performance.now();
 
+    // Bild-Export (nur während er läuft): zusätzlich höchstens BUDGET_EXPORT_MS
+    if (exportZustand) {
+      exportSchritt(t3 + BUDGET_EXPORT_MS);
+    }
+    bildKnopfPruefen();
+    var tE = performance.now();
+
     // In der Pause ohne Änderung muss das Bild nicht neu gemalt werden.
     if (neuZeichnen) {
       sichtbaresBildMalen();
@@ -1497,7 +2179,8 @@
       teilZeitMerken(0, t1 - start);
       teilZeitMerken(1, t2 - t1);
       teilZeitMerken(2, t3 - t2);
-      teilZeitMerken(3, t4 - t3);
+      teilZeitMerken(3, t4 - tE);
+      teilZeitMerken(4, tE - t3);
       if (linienPxImBild > anzeigeGroessteLinie) {
         anzeigeGroessteLinie = linienPxImBild;
       }

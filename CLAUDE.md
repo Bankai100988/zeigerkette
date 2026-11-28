@@ -79,6 +79,8 @@ Programmierer und lernt GitHub dabei.
 ## Datenschutz
 Keine Namen, Fotos oder persönlichen Daten des Kindes in Code, Dateien,
 Kommentaren oder Commit-Texten. Das Repository ist öffentlich.
+- Die Bibliothek „Meine Muster“ liegt nur lokal in der IndexedDB des
+  Geräts. Nichts davon wird hochgeladen oder geteilt.
 
 ## Etappen (Überblick, nur zur Orientierung, nicht ohne Auftrag bauen)
 1. Grundversion: 1 bis 3 Stäbe, Regler für Länge und Tempo, Drehrichtung, Spur
@@ -92,4 +94,7 @@ Kommentaren oder Commit-Texten. Das Repository ist öffentlich.
 - Etappe 1 (Grundversion) ist fertig: bis zu 8 Stäbe, Regler für Länge und
   Tempo, Drehrichtung, Spur pro Stab, Start/Pause, Löschen, Gesamt-Tempo und
   automatischer Bildausschnitt.
+- Dazu gehören die Zahleneingabe (0–100) über das eigene Ziffernfeld, die
+  Bibliothek „Meine Muster“ (Speichern mit Vorschaubild, Laden, Löschen) und
+  der Bild-Export als PNG.
 - Erledigte Aufträge liegen in `Anweisungen/fertig`.
